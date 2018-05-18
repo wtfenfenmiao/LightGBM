@@ -35,9 +35,8 @@ public:
   /*!
   * \brief Sum up (reducers) functions for histogram bin
   */
-  inline static void SumReducer(const char *src, char *dst, int len) {
-    const int type_size = sizeof(HistogramBinEntry);
-    int used_size = 0;
+  inline static void SumReducer(const char *src, char *dst, int type_size, comm_size_t len) {
+    comm_size_t used_size = 0;
     const HistogramBinEntry* p1;
     HistogramBinEntry* p2;
     while (used_size < len) {
@@ -99,7 +98,7 @@ public:
   * \brief Save binary data to file
   * \param file File want to write
   */
-  void SaveBinaryToFile(FILE* file) const;
+  void SaveBinaryToFile(const VirtualFileWriter* writer) const;
   /*!
   * \brief Mapping bin into feature value
   * \param bin
@@ -309,7 +308,7 @@ public:
   * \brief Save binary data to file
   * \param file File want to write
   */
-  virtual void SaveBinaryToFile(FILE* file) const = 0;
+  virtual void SaveBinaryToFile(const VirtualFileWriter* writer) const = 0;
 
   /*!
   * \brief Load from memory

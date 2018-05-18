@@ -29,11 +29,7 @@ namespace LightGBM {
 class Booster {
 public:
   explicit Booster(const char* filename) {
-    boosting_.reset(Boosting::CreateBoosting(filename));
-  }
-
-  Booster() {
-    boosting_.reset(Boosting::CreateBoosting("gbdt", nullptr));
+    boosting_.reset(Boosting::CreateBoosting("gbdt", filename));
   }
 
   Booster(const Dataset* train_data,
@@ -46,8 +42,8 @@ public:
     }
     // create boosting
     if (config_.io_config.input_model.size() > 0) {
-      Log::Warning("continued train from model is not support for c_api, \
-        please use continued train with input score");
+      Log::Warning("Continued train from model is not supported for c_api,\n"
+                   "please use continued train with input score");
     }
 
     boosting_.reset(Boosting::CreateBoosting(config_.boosting_type, nullptr));
@@ -56,10 +52,10 @@ public:
     CreateObjectiveAndMetrics();
     // initialize the boosting
     if (config_.boosting_config.tree_learner_type == std::string("feature")) {
-      Log::Fatal("Do not support feature parallel in c api.");
+      Log::Fatal("Do not support feature parallel in c api");
     }
     if (Network::num_machines() == 1 && config_.boosting_config.tree_learner_type != std::string("serial")) {
-      Log::Warning("Only find one worker, will switch to serial tree learner.");
+      Log::Warning("Only find one worker, will switch to serial tree learner");
       config_.boosting_config.tree_learner_type = "serial";
     }
     boosting_->Init(&config_.boosting_config, train_data_, objective_fun_.get(),
@@ -116,13 +112,13 @@ public:
     std::lock_guard<std::mutex> lock(mutex_);
     auto param = ConfigBase::Str2Map(parameters);
     if (param.count("num_class")) {
-      Log::Fatal("cannot change num class during training");
+      Log::Fatal("Cannot change num_class during training");
     }
     if (param.count("boosting_type")) {
-      Log::Fatal("cannot change boosting_type during training");
+      Log::Fatal("Cannot change boosting_type during training");
     }
     if (param.count("metric")) {
-      Log::Fatal("cannot change metric during training");
+      Log::Fatal("Cannot change metric during training");
     }
 
     config_.Set(param);
@@ -168,7 +164,7 @@ public:
     return boosting_->TrainOneIter(nullptr, nullptr);
   }
 
-  bool TrainOneIter(const float* gradients, const float* hessians) {
+  bool TrainOneIter(const score_t* gradients, const score_t* hessians) {
     std::lock_guard<std::mutex> lock(mutex_);
     return boosting_->TrainOneIter(gradients, hessians);
   }
@@ -244,7 +240,8 @@ public:
   }
 
   void LoadModelFromString(const char* model_str) {
-    boosting_->LoadModelFromString(model_str);
+    size_t len = std::strlen(model_str);
+    boosting_->LoadModelFromString(model_str, len);
   }
 
   std::string SaveModelToString(int num_iteration) {
@@ -276,23 +273,21 @@ public:
     return ret;
   }
 
-  #pragma warning(disable : 4996)
   int GetEvalNames(char** out_strs) const {
     int idx = 0;
     for (const auto& metric : train_metric_) {
       for (const auto& name : metric->GetName()) {
-        std::strcpy(out_strs[idx], name.c_str());
+        std::memcpy(out_strs[idx], name.c_str(), name.size() + 1);
         ++idx;
       }
     }
     return idx;
   }
 
-  #pragma warning(disable : 4996)
   int GetFeatureNames(char** out_strs) const {
     int idx = 0;
     for (const auto& name : boosting_->FeatureNames()) {
-      std::strcpy(out_strs[idx], name.c_str());
+      std::memcpy(out_strs[idx], name.c_str(), name.size() + 1);
       ++idx;
     }
     return idx;
@@ -501,7 +496,7 @@ int LGBM_DatasetCreateFromMat(const void* data,
       auto idx = sample_indices[i];
       auto row = get_row_fun(static_cast<int>(idx));
       for (size_t j = 0; j < row.size(); ++j) {
-        if (std::fabs(row[j]) > kEpsilon || std::isnan(row[j])) {
+        if (std::fabs(row[j]) > kZeroThreshold || std::isnan(row[j])) {
           sample_values[j].emplace_back(row[j]);
           sample_idx[j].emplace_back(static_cast<int>(i));
         }
@@ -560,23 +555,19 @@ int LGBM_DatasetCreateFromCSR(const void* indptr,
     int sample_cnt = static_cast<int>(nrow < config.io_config.bin_construct_sample_cnt ? nrow : config.io_config.bin_construct_sample_cnt);
     auto sample_indices = rand.Sample(nrow, sample_cnt);
     sample_cnt = static_cast<int>(sample_indices.size());
-    std::vector<std::vector<double>> sample_values;
-    std::vector<std::vector<int>> sample_idx;
+    std::vector<std::vector<double>> sample_values(num_col);
+    std::vector<std::vector<int>> sample_idx(num_col);
     for (size_t i = 0; i < sample_indices.size(); ++i) {
       auto idx = sample_indices[i];
       auto row = get_row_fun(static_cast<int>(idx));
       for (std::pair<int, double>& inner_data : row) {
-        if (static_cast<size_t>(inner_data.first) >= sample_values.size()) {
-          sample_values.resize(inner_data.first + 1);
-          sample_idx.resize(inner_data.first + 1);
-        }
-        if (std::fabs(inner_data.second) > kEpsilon || std::isnan(inner_data.second)) {
+        CHECK(inner_data.first < num_col);
+        if (std::fabs(inner_data.second) > kZeroThreshold || std::isnan(inner_data.second)) {
           sample_values[inner_data.first].emplace_back(inner_data.second);
           sample_idx[inner_data.first].emplace_back(static_cast<int>(i));
         }
       }
     }
-    CHECK(num_col >= static_cast<int>(sample_values.size()));
     DatasetLoader loader(config.io_config, nullptr, 1, nullptr);
     ret.reset(loader.CostructFromSampleData(Common::Vector2Ptr<double>(sample_values).data(),
                                             Common::Vector2Ptr<int>(sample_idx).data(),
@@ -638,7 +629,7 @@ int LGBM_DatasetCreateFromCSC(const void* col_ptr,
       CSC_RowIterator col_it(col_ptr, col_ptr_type, indices, data, data_type, ncol_ptr, nelem, i);
       for (int j = 0; j < sample_cnt; j++) {
         auto val = col_it.Get(sample_indices[j]);
-        if (std::fabs(val) > kEpsilon || std::isnan(val)) {
+        if (std::fabs(val) > kZeroThreshold || std::isnan(val)) {
           sample_values[i].emplace_back(val);
           sample_idx[i].emplace_back(j);
         }
@@ -722,7 +713,6 @@ int LGBM_DatasetSetFeatureNames(
   API_END();
 }
 
-#pragma warning(disable : 4996)
 int LGBM_DatasetGetFeatureNames(
   DatasetHandle handle,
   char** feature_names,
@@ -732,7 +722,7 @@ int LGBM_DatasetGetFeatureNames(
   auto inside_feature_name = dataset->feature_names();
   *num_feature_names = static_cast<int>(inside_feature_name.size());
   for (int i = 0; i < *num_feature_names; ++i) {
-    std::strcpy(feature_names[i], inside_feature_name[i].c_str());
+    std::memcpy(feature_names[i], inside_feature_name[i].c_str(), inside_feature_name[i].size() + 1);
   }
   API_END();
 }
@@ -767,7 +757,7 @@ int LGBM_DatasetSetField(DatasetHandle handle,
   } else if (type == C_API_DTYPE_FLOAT64) {
     is_success = dataset->SetDoubleField(field_name, reinterpret_cast<const double*>(field_data), static_cast<int32_t>(num_element));
   }
-  if (!is_success) { throw std::runtime_error("Input data type erorr or field not found"); }
+  if (!is_success) { throw std::runtime_error("Input data type error or field not found"); }
   API_END();
 }
 
@@ -838,7 +828,7 @@ int LGBM_BoosterLoadModelFromString(
   int* out_num_iterations,
   BoosterHandle* out) {
   API_BEGIN();
-  auto ret = std::unique_ptr<Booster>(new Booster());
+  auto ret = std::unique_ptr<Booster>(new Booster(nullptr));
   ret->LoadModelFromString(model_str);
   *out_num_iterations = ret->GetBoosting()->GetCurrentIteration();
   *out = ret.release();
@@ -910,11 +900,15 @@ int LGBM_BoosterUpdateOneIterCustom(BoosterHandle handle,
                                     int* is_finished) {
   API_BEGIN();
   Booster* ref_booster = reinterpret_cast<Booster*>(handle);
+  #ifdef SCORE_T_USE_DOUBLE
+  Log::Fatal("Don't support custom loss function when SCORE_T_USE_DOUBLE is enabled");
+  #else
   if (ref_booster->TrainOneIter(grad, hess)) {
     *is_finished = 1;
   } else {
     *is_finished = 0;
   }
+  #endif
   API_END();
 }
 
@@ -1096,7 +1090,7 @@ int LGBM_BoosterPredictForCSC(BoosterHandle handle,
     const int tid = omp_get_thread_num();
     for (int j = 0; j < ncol; ++j) {
       auto val = iterators[tid][j].Get(i);
-      if (std::fabs(val) > kEpsilon || std::isnan(val)) {
+      if (std::fabs(val) > kZeroThreshold || std::isnan(val)) {
         one_row.emplace_back(j, val);
       }
     }
@@ -1141,34 +1135,32 @@ int LGBM_BoosterSaveModel(BoosterHandle handle,
   API_END();
 }
 
-#pragma warning(disable : 4996)
 int LGBM_BoosterSaveModelToString(BoosterHandle handle,
                                   int num_iteration,
-                                  int buffer_len,
-                                  int* out_len,
+                                  int64_t buffer_len, 
+                                  int64_t* out_len,
                                   char* out_str) {
   API_BEGIN();
   Booster* ref_booster = reinterpret_cast<Booster*>(handle);
   std::string model = ref_booster->SaveModelToString(num_iteration);
-  *out_len = static_cast<int>(model.size()) + 1;
+  *out_len = static_cast<int64_t>(model.size()) + 1;
   if (*out_len <= buffer_len) {
-    std::strcpy(out_str, model.c_str());
+    std::memcpy(out_str, model.c_str(), *out_len);
   }
   API_END();
 }
 
-#pragma warning(disable : 4996)
 int LGBM_BoosterDumpModel(BoosterHandle handle,
                           int num_iteration,
-                          int buffer_len,
-                          int* out_len,
+                          int64_t buffer_len,
+                          int64_t* out_len,
                           char* out_str) {
   API_BEGIN();
   Booster* ref_booster = reinterpret_cast<Booster*>(handle);
   std::string model = ref_booster->DumpModel(num_iteration);
-  *out_len = static_cast<int>(model.size()) + 1;
+  *out_len = static_cast<int64_t>(model.size()) + 1;
   if (*out_len <= buffer_len) {
-    std::strcpy(out_str, model.c_str());
+    std::memcpy(out_str, model.c_str(), *out_len);
   }
   API_END();
 }
@@ -1228,6 +1220,16 @@ int LGBM_NetworkFree() {
   API_END();
 }
 
+int LGBM_NetworkInitWithFunctions(int num_machines, int rank,
+                                  void* reduce_scatter_ext_fun,
+                                  void* allgather_ext_fun) {
+  API_BEGIN();
+  if (num_machines > 1) {
+    Network::Init(num_machines, rank, (ReduceScatterFunction)reduce_scatter_ext_fun, (AllgatherFunction)allgather_ext_fun);
+  }
+  API_END();
+}
+
 // ---- start of some help functions
 
 std::function<std::vector<double>(int row_idx)>
@@ -1273,7 +1275,7 @@ RowFunctionFromDenseMatric(const void* data, int num_row, int num_col, int data_
       };
     }
   }
-  throw std::runtime_error("unknown data type in RowFunctionFromDenseMatric");
+  throw std::runtime_error("Unknown data type in RowFunctionFromDenseMatric");
 }
 
 std::function<std::vector<std::pair<int, double>>(int row_idx)>
@@ -1284,7 +1286,7 @@ RowPairFunctionFromDenseMatric(const void* data, int num_row, int num_col, int d
       auto raw_values = inner_function(row_idx);
       std::vector<std::pair<int, double>> ret;
       for (int i = 0; i < static_cast<int>(raw_values.size()); ++i) {
-        if (std::fabs(raw_values[i]) > kEpsilon || std::isnan(raw_values[i])) {
+        if (std::fabs(raw_values[i]) > kZeroThreshold || std::isnan(raw_values[i])) {
           ret.emplace_back(i, raw_values[i]);
         }
       }
@@ -1347,7 +1349,7 @@ RowFunctionFromCSR(const void* indptr, int indptr_type, const int32_t* indices, 
       };
     }
   }
-  throw std::runtime_error("unknown data type in RowFunctionFromCSR");
+  throw std::runtime_error("Unknown data type in RowFunctionFromCSR");
 }
 
 std::function<std::pair<int, double>(int idx)>
@@ -1412,7 +1414,7 @@ IterateFunctionFromCSC(const void* col_ptr, int col_ptr_type, const int32_t* ind
       };
     }
   }
-  throw std::runtime_error("unknown data type in CSC matrix");
+  throw std::runtime_error("Unknown data type in CSC matrix");
 }
 
 CSC_RowIterator::CSC_RowIterator(const void* col_ptr, int col_ptr_type, const int32_t* indices,

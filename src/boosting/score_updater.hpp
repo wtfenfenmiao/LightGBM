@@ -35,7 +35,7 @@ public:
     if (init_score != nullptr) {
       if ((data->metadata().num_init_score() % num_data_) != 0
           || (data->metadata().num_init_score() / num_data_) != num_tree_per_iteration) {
-        Log::Fatal("number of class for initial score error");
+        Log::Fatal("Number of class for initial score error");
       }
       has_init_score_ = true;
       #pragma omp parallel for schedule(static)
@@ -73,7 +73,8 @@ public:
   * \param cur_tree_id Current tree for multiclass training
   */
   inline void AddScore(const Tree* tree, int cur_tree_id) {
-    tree->AddPredictionToScore(data_, num_data_, score_.data() + cur_tree_id * num_data_);
+    const size_t offset = static_cast<size_t>(num_data_) * cur_tree_id;
+    tree->AddPredictionToScore(data_, num_data_, score_.data() + offset);
   }
   /*!
   * \brief Adding prediction score, only used for training data.
@@ -83,7 +84,8 @@ public:
   * \param cur_tree_id Current tree for multiclass training
   */
   inline void AddScore(const TreeLearner* tree_learner, const Tree* tree, int cur_tree_id) {
-    tree_learner->AddPredictionToScore(tree, score_.data() + cur_tree_id * num_data_);
+    const size_t offset = static_cast<size_t>(num_data_) * cur_tree_id;
+    tree_learner->AddPredictionToScore(tree, score_.data() + offset);
   }
   /*!
   * \brief Using tree model to get prediction number, then adding to scores for parts of data
@@ -95,10 +97,12 @@ public:
   */
   inline void AddScore(const Tree* tree, const data_size_t* data_indices,
                        data_size_t data_cnt, int cur_tree_id) {
-    tree->AddPredictionToScore(data_, data_indices, data_cnt, score_.data() + cur_tree_id * num_data_);
+    const size_t offset = static_cast<size_t>(num_data_) * cur_tree_id;
+    tree->AddPredictionToScore(data_, data_indices, data_cnt, score_.data() + offset);
   }
   /*! \brief Pointer of score */
   inline const double* score() const { return score_.data(); }
+
   inline data_size_t num_data() const { return num_data_; }
 
   /*! \brief Disable copy */

@@ -32,7 +32,8 @@ public:
   * \param training_metrics Training metrics
   * \param output_model_filename Filename of output model
   */
-  void Init(const BoostingConfig* config, const Dataset* train_data, const ObjectiveFunction* objective_function,
+  void Init(const BoostingConfig* config, const Dataset* train_data,
+            const ObjectiveFunction* objective_function,
             const std::vector<const Metric*>& training_metrics) override {
     GBDT::Init(config, train_data, objective_function, training_metrics);
     random_for_drop_ = Random(gbdt_config_->drop_seed);
@@ -95,7 +96,10 @@ private:
         }
         for (int i = 0; i < iter_; ++i) {
           if (random_for_drop_.NextFloat() < drop_rate * tree_weight_[i] * inv_average_weight) {
-            drop_index_.push_back(i);
+            drop_index_.push_back(num_init_iteration_ + i);
+            if (drop_index_.size() >= static_cast<size_t>(gbdt_config_->max_drop)) {
+              break;
+            }
           }
         }
       } else {
@@ -104,7 +108,10 @@ private:
         }
         for (int i = 0; i < iter_; ++i) {
           if (random_for_drop_.NextFloat() < drop_rate) {
-            drop_index_.push_back(i);
+            drop_index_.push_back(num_init_iteration_ + i);
+            if (drop_index_.size() >= static_cast<size_t>(gbdt_config_->max_drop)) {
+              break;
+            }
           }
         }
       }

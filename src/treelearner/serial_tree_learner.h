@@ -24,6 +24,8 @@
 #include <boost/align/aligned_allocator.hpp>
 #endif
 
+using namespace json11;
+
 namespace LightGBM {
 
 /*!
@@ -41,9 +43,13 @@ public:
 
   void ResetConfig(const TreeConfig* tree_config) override;
 
-  Tree* Train(const score_t* gradients, const score_t *hessians, bool is_constant_hessian) override;
+  Tree* Train(const score_t* gradients, const score_t *hessians, bool is_constant_hessian,
+              Json& forced_split_json) override;
 
   Tree* FitByExistingTree(const Tree* old_tree, const score_t* gradients, const score_t* hessians) const override;
+
+  Tree* FitByExistingTree(const Tree* old_tree, const std::vector<int>& leaf_pred,
+                          const score_t* gradients, const score_t* hessians) override;
 
   void SetBaggingData(const data_size_t* used_indices, data_size_t num_data) override {
     data_partition_->SetUsedDataIndices(used_indices, num_data);
@@ -62,6 +68,9 @@ public:
       }
     }
   }
+
+  void RenewTreeOutput(Tree* tree, const ObjectiveFunction* obj, const double* prediction,
+                       data_size_t total_num_data, const data_size_t* bag_indices, data_size_t bag_cnt) const override;
 
 protected:
   /*!
@@ -88,6 +97,12 @@ protected:
   * \param right_leaf The index of right leaf after splitted.
   */
   virtual void Split(Tree* tree, int best_leaf, int* left_leaf, int* right_leaf);
+
+  /* Force splits with forced_split_json dict and then return num splits forced.*/
+  virtual int32_t ForceSplits(Tree* tree, Json& forced_split_json, int* left_leaf,
+                              int* right_leaf, int* cur_depth, 
+                              bool *aborted_last_force_split);
+
 
   /*!
   * \brief Get the number of data in a leaf
@@ -125,6 +140,7 @@ protected:
   std::unique_ptr<LeafSplits> smaller_leaf_splits_;
   /*! \brief stores best thresholds for all feature for larger leaf */
   std::unique_ptr<LeafSplits> larger_leaf_splits_;
+  std::vector<int> valid_feature_indices_;
 
 #ifdef USE_GPU
   /*! \brief gradients of current iteration, ordered for cache optimized, aligned to 4K page */
@@ -153,9 +169,9 @@ protected:
   bool is_constant_hessian_;
 };
 
-inline data_size_t SerialTreeLearner::GetGlobalDataCountInLeaf(int leafIdx) const {
-  if (leafIdx >= 0) {
-    return data_partition_->leaf_count(leafIdx);
+inline data_size_t SerialTreeLearner::GetGlobalDataCountInLeaf(int leaf_idx) const {
+  if (leaf_idx >= 0) {
+    return data_partition_->leaf_count(leaf_idx);
   } else {
     return 0;
   }

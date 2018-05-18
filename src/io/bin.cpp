@@ -1,4 +1,5 @@
 #include <LightGBM/utils/common.h>
+#include <LightGBM/utils/file_io.h>
 #include <LightGBM/bin.h>
 
 #include "dense_bin.hpp"
@@ -79,8 +80,11 @@ namespace LightGBM {
       for (int i = 0; i < num_distinct_values - 1; ++i) {
         cur_cnt_inbin += counts[i];
         if (cur_cnt_inbin >= min_data_in_bin) {
-          bin_upper_bound.push_back((distinct_values[i] + distinct_values[i + 1]) / 2);
-          cur_cnt_inbin = 0;
+          auto val = Common::GetDoubleUpperBound((distinct_values[i] + distinct_values[i + 1]) / 2.0);
+          if (bin_upper_bound.empty() || !Common::CheckDoubleEqualOrdered(bin_upper_bound.back(), val)) {
+            bin_upper_bound.push_back(val);
+            cur_cnt_inbin = 0;
+          }
         }
       }
       cur_cnt_inbin += counts[num_distinct_values - 1];
@@ -131,12 +135,15 @@ namespace LightGBM {
       }
       ++bin_cnt;
       // update bin upper bound
-      bin_upper_bound.resize(bin_cnt);
+      bin_upper_bound.clear();
       for (int i = 0; i < bin_cnt - 1; ++i) {
-        bin_upper_bound[i] = (upper_bounds[i] + lower_bounds[i + 1]) / 2.0f;
+        auto val = Common::GetDoubleUpperBound((upper_bounds[i] + lower_bounds[i + 1]) / 2.0);
+        if (bin_upper_bound.empty() || !Common::CheckDoubleEqualOrdered(bin_upper_bound.back(), val)) {
+          bin_upper_bound.push_back(val);
+        }
       }
       // last bin upper bound
-      bin_upper_bound[bin_cnt - 1] = std::numeric_limits<double>::infinity();
+      bin_upper_bound.push_back(std::numeric_limits<double>::infinity());
     }
     return bin_upper_bound;
   }
@@ -148,9 +155,9 @@ namespace LightGBM {
     int cnt_zero = 0;
     int right_cnt_data = 0;
     for (int i = 0; i < num_distinct_values; ++i) {
-      if (distinct_values[i] <= -kZeroAsMissingValueRange) {
+      if (distinct_values[i] <= -kZeroThreshold) {
         left_cnt_data += counts[i];
-      } else if (distinct_values[i] > kZeroAsMissingValueRange) {
+      } else if (distinct_values[i] > kZeroThreshold) {
         right_cnt_data += counts[i];
       } else {
         cnt_zero += counts[i];
@@ -159,7 +166,7 @@ namespace LightGBM {
 
     int left_cnt = -1;
     for (int i = 0; i < num_distinct_values; ++i) {
-      if (distinct_values[i] > -kZeroAsMissingValueRange) {
+      if (distinct_values[i] > -kZeroThreshold) {
         left_cnt = i;
         break;
       }
@@ -173,12 +180,12 @@ namespace LightGBM {
       int left_max_bin = static_cast<int>(static_cast<double>(left_cnt_data) / (total_sample_cnt - cnt_zero) * (max_bin - 1));
       left_max_bin = std::max(1, left_max_bin);
       bin_upper_bound = GreedyFindBin(distinct_values, counts, left_cnt, left_max_bin, left_cnt_data, min_data_in_bin);
-      bin_upper_bound.back() = -kZeroAsMissingValueRange;
+      bin_upper_bound.back() = -kZeroThreshold;
     }
 
     int right_start = -1;
     for (int i = left_cnt; i < num_distinct_values; ++i) {
-      if (distinct_values[i] > kZeroAsMissingValueRange) {
+      if (distinct_values[i] > kZeroThreshold) {
         right_start = i;
         break;
       }
@@ -189,7 +196,7 @@ namespace LightGBM {
       CHECK(right_max_bin > 0);
       auto right_bounds = GreedyFindBin(distinct_values + right_start, counts + right_start,
         num_distinct_values - right_start, right_max_bin, right_cnt_data, min_data_in_bin);
-      bin_upper_bound.push_back(kZeroAsMissingValueRange);
+      bin_upper_bound.push_back(kZeroThreshold);
       bin_upper_bound.insert(bin_upper_bound.end(), right_bounds.begin(), right_bounds.end());
     } else {
       bin_upper_bound.push_back(std::numeric_limits<double>::infinity());
@@ -241,7 +248,7 @@ namespace LightGBM {
     }
 
     for (int i = 1; i < num_sample_values; ++i) {
-      if (values[i] != values[i - 1]) {
+      if (!Common::CheckDoubleEqualOrdered(values[i - 1], values[i])) {
         if (values[i - 1] < 0.0f && values[i] > 0.0f) {
           distinct_values.push_back(0.0f);
           counts.push_back(zero_cnt);
@@ -249,6 +256,8 @@ namespace LightGBM {
         distinct_values.push_back(values[i]);
         counts.push_back(1);
       } else {
+        // use the large value
+        distinct_values.back() = values[i];
         ++counts.back();
       }
     }
@@ -447,19 +456,19 @@ namespace LightGBM {
     }
   }
 
-  void BinMapper::SaveBinaryToFile(FILE* file) const {
-    fwrite(&num_bin_, sizeof(num_bin_), 1, file);
-    fwrite(&missing_type_, sizeof(missing_type_), 1, file);
-    fwrite(&is_trival_, sizeof(is_trival_), 1, file);
-    fwrite(&sparse_rate_, sizeof(sparse_rate_), 1, file);
-    fwrite(&bin_type_, sizeof(bin_type_), 1, file);
-    fwrite(&min_val_, sizeof(min_val_), 1, file);
-    fwrite(&max_val_, sizeof(max_val_), 1, file);
-    fwrite(&default_bin_, sizeof(default_bin_), 1, file);
+  void BinMapper::SaveBinaryToFile(const VirtualFileWriter* writer) const {
+    writer->Write(&num_bin_, sizeof(num_bin_));
+    writer->Write(&missing_type_, sizeof(missing_type_));
+    writer->Write(&is_trival_, sizeof(is_trival_));
+    writer->Write(&sparse_rate_, sizeof(sparse_rate_));
+    writer->Write(&bin_type_, sizeof(bin_type_));
+    writer->Write(&min_val_, sizeof(min_val_));
+    writer->Write(&max_val_, sizeof(max_val_));
+    writer->Write(&default_bin_, sizeof(default_bin_));
     if (bin_type_ == BinType::NumericalBin) {
-      fwrite(bin_upper_bound_.data(), sizeof(double), num_bin_, file);
+      writer->Write(bin_upper_bound_.data(), sizeof(double) * num_bin_);
     } else {
-      fwrite(bin_2_categorical_.data(), sizeof(int), num_bin_, file);
+      writer->Write(bin_2_categorical_.data(), sizeof(int) * num_bin_);
     }
   }
 

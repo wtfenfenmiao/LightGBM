@@ -197,6 +197,7 @@
     <ClInclude Include="..\include\LightGBM\dataset.h" />
     <ClInclude Include="..\include\LightGBM\dataset_loader.h" />
     <ClInclude Include="..\include\LightGBM\feature_group.h" />
+    <ClInclude Include="..\include\LightGBM\json11.hpp" />
     <ClInclude Include="..\include\LightGBM\lightgbm_R.h" />
     <ClInclude Include="..\include\LightGBM\meta.h" />
     <ClInclude Include="..\include\LightGBM\metric.h" />
@@ -208,6 +209,7 @@
     <ClInclude Include="..\include\LightGBM\tree_learner.h" />
     <ClInclude Include="..\include\LightGBM\utils\array_args.h" />
     <ClInclude Include="..\include\LightGBM\utils\common.h" />
+    <ClInclude Include="..\include\LightGBM\utils\file_io.h" />
     <ClInclude Include="..\include\LightGBM\utils\log.h" />
     <ClInclude Include="..\include\LightGBM\utils\openmp_wrapper.h" />
     <ClInclude Include="..\include\LightGBM\utils\pipeline_reader.h" />
@@ -230,12 +232,14 @@
     <ClInclude Include="..\src\metric\rank_metric.hpp" />
     <ClInclude Include="..\src\metric\regression_metric.hpp" />
     <ClInclude Include="..\src\metric\multiclass_metric.hpp" />
+    <ClInclude Include="..\src\metric\xentropy_metric.hpp" />
     <ClInclude Include="..\src\network\linkers.h" />
     <ClInclude Include="..\src\network\socket_wrapper.hpp" />
     <ClInclude Include="..\src\objective\binary_objective.hpp" />
     <ClInclude Include="..\src\objective\rank_objective.hpp" />
     <ClInclude Include="..\src\objective\regression_objective.hpp" />
     <ClInclude Include="..\src\objective\multiclass_objective.hpp" />
+    <ClInclude Include="..\src\objective\xentropy_objective.hpp" />
     <ClInclude Include="..\src\treelearner\data_partition.hpp" />
     <ClInclude Include="..\src\treelearner\feature_histogram.hpp" />
     <ClInclude Include="..\src\treelearner\leaf_splits.hpp" />
@@ -247,7 +251,7 @@
     <ClCompile Include="..\src\application\application.cpp" />
     <ClCompile Include="..\src\boosting\boosting.cpp" />
     <ClCompile Include="..\src\boosting\gbdt.cpp" />
-    <ClCompile Include="..\src\boosting\gbdt_model.cpp" />
+    <ClCompile Include="..\src\boosting\gbdt_model_text.cpp" />
     <ClCompile Include="..\src\boosting\gbdt_prediction.cpp" />
     <ClCompile Include="..\src\boosting\prediction_early_stop.cpp" />
     <ClCompile Include="..\src\c_api.cpp" />
@@ -255,6 +259,8 @@
     <ClCompile Include="..\src\io\config.cpp" />
     <ClCompile Include="..\src\io\dataset.cpp" />
     <ClCompile Include="..\src\io\dataset_loader.cpp" />
+    <ClCompile Include="..\src\io\file_io.cpp" />
+    <ClCompile Include="..\src\io\json11.cpp" />
     <ClCompile Include="..\src\io\metadata.cpp" />
     <ClCompile Include="..\src\io\parser.cpp" />
     <ClCompile Include="..\src\io\tree.cpp" />

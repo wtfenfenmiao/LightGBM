@@ -87,7 +87,7 @@ public:
 
 /*! \brief Types of tasks */
 enum TaskType {
-  kTrain, kPredict, kConvertModel
+  kTrain, kPredict, kConvertModel, KRefitTree
 };
 
 /*! \brief Config for input and output files */
@@ -105,6 +105,7 @@ public:
   std::string output_result = "LightGBM_predict_result.txt";
   std::string convert_model = "gbdt_prediction.cpp";
   std::string input_model = "";
+
   int verbosity = 1;
   int num_iteration_predict = -1;
   bool is_pre_partition = false;
@@ -123,9 +124,10 @@ public:
   bool is_predict_raw_score = false;
   int min_data_in_leaf = 20;
   int min_data_in_bin = 3;
-  double max_conflict_rate = 0.0f;
+  double max_conflict_rate = 0.0;
   bool enable_bundle = true;
   bool has_header = false;
+  std::vector<int8_t> monotone_constraints;
   /*! \brief Index or column name of label, default is the first column
    * And add an prefix "name:" while using column name */
   std::string label_column = "";
@@ -152,7 +154,7 @@ public:
   /*! \brief Frequency of checking the pred_early_stop */
   int pred_early_stop_freq = 10;
   /*! \brief Threshold of margin of pred_early_stop */
-  double pred_early_stop_margin = 10.0f;
+  double pred_early_stop_margin = 10.0;
   bool zero_as_missing = false;
   bool use_missing = true;
   LIGHTGBM_EXPORT void Set(const std::unordered_map<std::string, std::string>& params) override;
@@ -162,12 +164,9 @@ public:
 struct ObjectiveConfig: public ConfigBase {
 public:
   virtual ~ObjectiveConfig() {}
-  double sigmoid = 1.0f;
-  double huber_delta = 1.0f;
-  double fair_c = 1.0f;
-  // for Approximate Hessian With Gaussian
-  double gaussian_eta = 1.0f;
-  double poisson_max_delta_step = 0.7f;
+  double sigmoid = 1.0;
+  double fair_c = 1.0;
+  double poisson_max_delta_step = 0.7;
   // for lambdarank
   std::vector<double> label_gain;
   // for lambdarank
@@ -177,7 +176,11 @@ public:
   // for multiclass
   int num_class = 1;
   // Balancing of positive and negative weights
-  double scale_pos_weight = 1.0f;
+  double scale_pos_weight = 1.0;
+  // True will sqrt fit the sqrt(label)
+  bool reg_sqrt = false;
+  double alpha = 0.9;
+  double tweedie_variance_power = 1.5;
   LIGHTGBM_EXPORT void Set(const std::unordered_map<std::string, std::string>& params) override;
 };
 
@@ -186,9 +189,10 @@ struct MetricConfig: public ConfigBase {
 public:
   virtual ~MetricConfig() {}
   int num_class = 1;
-  double sigmoid = 1.0f;
-  double huber_delta = 1.0f;
-  double fair_c = 1.0f;
+  double sigmoid = 1.0;
+  double fair_c = 1.0;
+  double alpha = 0.9;
+  double tweedie_variance_power = 1.5;
   std::vector<double> label_gain;
   std::vector<int> eval_at;
   LIGHTGBM_EXPORT void Set(const std::unordered_map<std::string, std::string>& params) override;
@@ -199,16 +203,17 @@ public:
 struct TreeConfig: public ConfigBase {
 public:
   int min_data_in_leaf = 20;
-  double min_sum_hessian_in_leaf = 1e-3f;
-  double lambda_l1 = 0.0f;
-  double lambda_l2 = 0.0f;
-  double min_gain_to_split = 0.0f;
+  double min_sum_hessian_in_leaf = 1e-3;
+  double max_delta_step = 0.0;
+  double lambda_l1 = 0.0;
+  double lambda_l2 = 0.0;
+  double min_gain_to_split = 0.0;
   // should > 1
   int num_leaves = kDefaultNumLeaves;
   int feature_fraction_seed = 2;
-  double feature_fraction = 1.0f;
+  double feature_fraction = 1.0;
   // max cache size(unit:MB) for historical histogram. < 0 means no limit
-  double histogram_pool_size = -1.0f;
+  double histogram_pool_size = -1.0;
   // max depth of tree model.
   // Still grow tree by leaf-wise, but limit the max depth to avoid over-fitting
   // And the max leaves will be min(num_leaves, pow(2, max_depth))
@@ -237,12 +242,11 @@ public:
 struct BoostingConfig: public ConfigBase {
 public:
   virtual ~BoostingConfig() {}
-  double sigmoid = 1.0f;
   int output_freq = 1;
   bool is_provide_training_metric = false;
   int num_iterations = 100;
-  double learning_rate = 0.1f;
-  double bagging_fraction = 1.0f;
+  double learning_rate = 0.1;
+  double bagging_fraction = 1.0;
   int bagging_seed = 3;
   int bagging_freq = 0;
   int early_stopping_round = 0;
@@ -253,14 +257,17 @@ public:
   bool xgboost_dart_mode = false;
   bool uniform_drop = false;
   int drop_seed = 4;
-  double top_rate = 0.2f;
-  double other_rate = 0.1f;
+  double top_rate = 0.2;
+  double other_rate = 0.1;
   // only used for the regression. Will boost from the average labels.
   bool boost_from_average = true;
   std::string tree_learner_type = kDefaultTreeLearnerType;
   std::string device_type = kDefaultDevice;
   TreeConfig tree_config;
   LIGHTGBM_EXPORT void Set(const std::unordered_map<std::string, std::string>& params) override;
+
+  /* filename of forced splits */
+  std::string forcedsplits_filename = "";
 };
 
 /*! \brief Config for Network */
@@ -360,8 +367,8 @@ struct ParameterAlias {
     {
       { "config", "config_file" },
       { "nthread", "num_threads" },
-      { "random_seed", "seed" },
       { "num_thread", "num_threads" },
+      { "random_seed", "seed" },
       { "boosting", "boosting_type" },
       { "boost", "boosting_type" },
       { "application", "objective" },
@@ -399,6 +406,8 @@ struct ParameterAlias {
       { "num_round", "num_iterations" },
       { "num_trees", "num_iterations" },
       { "num_rounds", "num_iterations" },
+      { "num_boost_round", "num_iterations" },
+      { "n_estimators", "num_iterations"},
       { "sub_row", "bagging_fraction" },
       { "subsample", "bagging_fraction" },
       { "subsample_freq", "bagging_freq" },
@@ -426,9 +435,9 @@ struct ParameterAlias {
       { "cat_column", "categorical_column" },
       { "cat_feature", "categorical_column" },
       { "predict_raw_score", "is_predict_raw_score" },
-      { "predict_leaf_index", "is_predict_leaf_index" },
       { "raw_score", "is_predict_raw_score" },
       { "leaf_index", "is_predict_leaf_index" },
+      { "predict_leaf_index", "is_predict_leaf_index" },
       { "contrib", "is_predict_contrib" },
       { "predict_contrib", "is_predict_contrib" },
       { "min_split_gain", "min_gain_to_split" },
@@ -438,9 +447,13 @@ struct ParameterAlias {
       { "num_classes", "num_class" },
       { "unbalanced_sets", "is_unbalance" },
       { "bagging_fraction_seed", "bagging_seed" },
-      { "num_boost_round", "num_iterations" },
       { "workers", "machines" },
       { "nodes", "machines" },
+      { "subsample_for_bin", "bin_construct_sample_cnt" },
+      { "metric_freq", "output_freq" },
+      { "mc", "monotone_constraints" },
+      { "max_tree_output", "max_delta_step" },
+      { "max_leaf_output", "max_delta_step" }
     });
     const std::unordered_set<std::string> parameter_set({
       "config", "config_file", "task", "device",
@@ -456,23 +469,25 @@ struct ParameterAlias {
       "ignore_column", "categorical_column", "is_predict_raw_score",
       "is_predict_leaf_index", "min_gain_to_split", "top_k",
       "lambda_l1", "lambda_l2", "num_class", "is_unbalance",
-      "max_depth", "subsample_for_bin", "max_bin", "bagging_seed",
+      "max_depth", "max_bin", "bagging_seed",
       "drop_rate", "skip_drop", "max_drop", "uniform_drop",
       "xgboost_dart_mode", "drop_seed", "top_rate", "other_rate",
       "min_data_in_bin", "data_random_seed", "bin_construct_sample_cnt",
       "num_iteration_predict", "pred_early_stop", "pred_early_stop_freq",
-      "pred_early_stop_margin", "use_missing", "sigmoid", "huber_delta",
+      "pred_early_stop_margin", "use_missing", "sigmoid",
       "fair_c", "poission_max_delta_step", "scale_pos_weight",
       "boost_from_average", "max_position", "label_gain",
-      "metric", "metric_freq", "time_out",
+      "metric", "output_freq", "time_out",
       "gpu_platform_id", "gpu_device_id", "gpu_use_dp",
       "convert_model", "convert_model_language",
       "feature_fraction_seed", "enable_bundle", "data_filename", "valid_data_filenames",
       "snapshot_freq", "verbosity", "sparse_threshold", "enable_load_from_binary_file",
-      "max_conflict_rate", "poisson_max_delta_step", "gaussian_eta",
-      "histogram_pool_size", "output_freq", "is_provide_training_metric", "machine_list_filename", "machines",
+      "max_conflict_rate", "poisson_max_delta_step",
+      "histogram_pool_size", "is_provide_training_metric", "machine_list_filename", "machines",
       "zero_as_missing", "init_score_file", "valid_init_score_file", "is_predict_contrib",
-      "max_cat_threshold",  "cat_smooth", "min_data_per_group", "cat_l2", "max_cat_to_onehot"
+      "max_cat_threshold",  "cat_smooth", "min_data_per_group", "cat_l2", "max_cat_to_onehot",
+      "alpha", "reg_sqrt", "tweedie_variance_power", "monotone_constraints", "max_delta_step",
+      "forced_splits"
     });
     std::unordered_map<std::string, std::string> tmp_map;
     for (const auto& pair : *params) {
@@ -483,11 +498,11 @@ struct ParameterAlias {
           // set priority by length & alphabetically to ensure reproducible behavior
           if (alias_set->second.size() < pair.first.size() ||
             (alias_set->second.size() == pair.first.size() && alias_set->second < pair.first)) {
-            Log::Warning("%s is set with %s=%s, %s=%s will be ignored. Current value: %s=%s.",
+            Log::Warning("%s is set with %s=%s, %s=%s will be ignored. Current value: %s=%s",
               alias->second.c_str(), alias_set->second.c_str(), params->at(alias_set->second).c_str(),
               pair.first.c_str(), pair.second.c_str(), alias->second.c_str(), params->at(alias_set->second).c_str());
           } else {
-            Log::Warning("%s is set with %s=%s, will be overrided by %s=%s. Current value: %s=%s.",
+            Log::Warning("%s is set with %s=%s, will be overridden by %s=%s. Current value: %s=%s",
               alias->second.c_str(), alias_set->second.c_str(), params->at(alias_set->second).c_str(),
               pair.first.c_str(), pair.second.c_str(), alias->second.c_str(), pair.second.c_str());
             tmp_map[alias->second] = pair.first;
@@ -505,7 +520,7 @@ struct ParameterAlias {
         params->emplace(pair.first, params->at(pair.second));
         params->erase(pair.second);
       } else {
-        Log::Warning("%s is set=%s, %s=%s will be ignored. Current value: %s=%s.", 
+        Log::Warning("%s is set=%s, %s=%s will be ignored. Current value: %s=%s", 
           pair.first.c_str(), alias->second.c_str(), pair.second.c_str(), params->at(pair.second).c_str(),
           pair.first.c_str(), alias->second.c_str());
       }

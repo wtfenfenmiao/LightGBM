@@ -20,6 +20,9 @@ if is_py3:
     def argc_(func):
         """return number of arguments of a function"""
         return len(inspect.signature(func).parameters)
+
+    def decode_string(bytestring):
+        return bytestring.decode('utf-8')
 else:
     string_type = basestring
     numeric_types = (int, long, float, bool)
@@ -29,6 +32,9 @@ else:
     def argc_(func):
         """return number of arguments of a function"""
         return len(inspect.getargspec(func).args)
+
+    def decode_string(bytestring):
+        return bytestring
 
 """json"""
 try:
@@ -63,7 +69,7 @@ try:
     from sklearn.base import BaseEstimator
     from sklearn.base import RegressorMixin, ClassifierMixin
     from sklearn.preprocessing import LabelEncoder
-    from sklearn.utils import deprecated
+    from sklearn.utils.class_weight import compute_sample_weight
     from sklearn.utils.multiclass import check_classification_targets
     from sklearn.utils.validation import check_X_y, check_array, check_consistent_length
     try:
@@ -77,7 +83,6 @@ try:
     _LGBMRegressorBase = RegressorMixin
     _LGBMClassifierBase = ClassifierMixin
     _LGBMLabelEncoder = LabelEncoder
-    LGBMDeprecated = deprecated
     LGBMNotFittedError = NotFittedError
     _LGBMStratifiedKFold = StratifiedKFold
     _LGBMGroupKFold = GroupKFold
@@ -85,13 +90,13 @@ try:
     _LGBMCheckArray = check_array
     _LGBMCheckConsistentLength = check_consistent_length
     _LGBMCheckClassificationTargets = check_classification_targets
+    _LGBMComputeSampleWeight = compute_sample_weight
 except ImportError:
     SKLEARN_INSTALLED = False
     _LGBMModelBase = object
     _LGBMClassifierBase = object
     _LGBMRegressorBase = object
     _LGBMLabelEncoder = None
-#   LGBMDeprecated = None  Don't uncomment it because it causes error without installed sklearn
     LGBMNotFittedError = ValueError
     _LGBMStratifiedKFold = None
     _LGBMGroupKFold = None
@@ -99,3 +104,9 @@ except ImportError:
     _LGBMCheckArray = None
     _LGBMCheckConsistentLength = None
     _LGBMCheckClassificationTargets = None
+    _LGBMComputeSampleWeight = None
+
+
+# DeprecationWarning is not shown by default, so let's create our own with higher level
+class LGBMDeprecationWarning(UserWarning):
+    pass

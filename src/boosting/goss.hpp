@@ -14,6 +14,7 @@
 #include <string>
 #include <fstream>
 #include <chrono>
+#include <algorithm>
 
 namespace LightGBM {
 
@@ -59,9 +60,9 @@ public:
     CHECK(gbdt_config_->top_rate + gbdt_config_->other_rate <= 1.0f);
     CHECK(gbdt_config_->top_rate > 0.0f && gbdt_config_->other_rate > 0.0f);
     if (gbdt_config_->bagging_freq > 0 && gbdt_config_->bagging_fraction != 1.0f) {
-      Log::Fatal("cannot use bagging in GOSS");
+      Log::Fatal("Cannot use bagging in GOSS");
     }
-    Log::Info("using GOSS");
+    Log::Info("Using GOSS");
 
     bag_data_indices_.resize(num_data_);
     tmp_indices_.resize(num_data_);
@@ -75,6 +76,7 @@ public:
     is_use_subset_ = false;
     if (gbdt_config_->top_rate + gbdt_config_->other_rate <= 0.5) {
       auto bag_data_cnt = static_cast<data_size_t>((gbdt_config_->top_rate + gbdt_config_->other_rate) * num_data_);
+      bag_data_cnt = std::max(1, bag_data_cnt);
       tmp_subset_.reset(new Dataset(bag_data_cnt));
       tmp_subset_->CopyFeatureMapperFrom(train_data_);
       is_use_subset_ = true;
@@ -94,7 +96,7 @@ public:
     data_size_t top_k = static_cast<data_size_t>(cnt * gbdt_config_->top_rate);
     data_size_t other_k = static_cast<data_size_t>(cnt * gbdt_config_->other_rate);
     top_k = std::max(1, top_k);
-    ArrayArgs<score_t>::ArgMaxAtK(&tmp_gradients, 0, static_cast<int>(tmp_gradients.size()), top_k);
+    ArrayArgs<score_t>::ArgMaxAtK(&tmp_gradients, 0, static_cast<int>(tmp_gradients.size()), top_k - 1);
     score_t threshold = tmp_gradients[top_k - 1];
 
     score_t multiply = static_cast<score_t>(cnt - top_k) / other_k;
@@ -203,11 +205,6 @@ public:
       #endif
     }
   }
-
-  /*!
-  * \brief Get Type name of this boosting object
-  */
-  const char* SubModelName() const override { return "tree"; }
 
 private:
   std::vector<data_size_t> tmp_indice_right_;

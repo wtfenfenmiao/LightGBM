@@ -69,18 +69,20 @@ void VotingParallelTreeLearner<TREELEARNER_T>::Init(const Dataset* train_data, b
     feature_metas_[i].num_bin = train_data->FeatureNumBin(i);
     feature_metas_[i].default_bin = train_data->FeatureBinMapper(i)->GetDefaultBin();
     feature_metas_[i].missing_type = train_data->FeatureBinMapper(i)->missing_type();
+    feature_metas_[i].monotone_type = train_data->FeatureMonotone(i);
     if (train_data->FeatureBinMapper(i)->GetDefaultBin() == 0) {
       feature_metas_[i].bias = 1;
     } else {
       feature_metas_[i].bias = 0;
     }
     feature_metas_[i].tree_config = this->tree_config_;
+    feature_metas_[i].bin_type = train_data->FeatureBinMapper(i)->bin_type();
   }
   uint64_t offset = 0;
   for (int j = 0; j < train_data->num_features(); ++j) {
     offset += static_cast<uint64_t>(train_data->SubFeatureBinOffset(j));
-    smaller_leaf_histogram_array_global_[j].Init(smaller_leaf_histogram_data_.data() + offset, &feature_metas_[j], train_data->FeatureBinMapper(j)->bin_type());
-    larger_leaf_histogram_array_global_[j].Init(larger_leaf_histogram_data_.data() + offset, &feature_metas_[j], train_data->FeatureBinMapper(j)->bin_type());
+    smaller_leaf_histogram_array_global_[j].Init(smaller_leaf_histogram_data_.data() + offset, &feature_metas_[j]);
+    larger_leaf_histogram_array_global_[j].Init(larger_leaf_histogram_data_.data() + offset, &feature_metas_[j]);
     auto num_bin = train_data->FeatureNumBin(j);
     if (train_data->FeatureBinMapper(j)->GetDefaultBin() == 0) {
       num_bin -= 1;
@@ -113,9 +115,8 @@ void VotingParallelTreeLearner<TREELEARNER_T>::BeforeTrain() {
   int size = sizeof(std::tuple<data_size_t, double, double>);
   std::memcpy(input_buffer_.data(), &data, size);
 
-  Network::Allreduce(input_buffer_.data(), size, size, output_buffer_.data(), [](const char *src, char *dst, int len) {
-    int used_size = 0;
-    int type_size = sizeof(std::tuple<data_size_t, double, double>);
+  Network::Allreduce(input_buffer_.data(), size, sizeof(std::tuple<data_size_t, double, double>), output_buffer_.data(), [](const char *src, char *dst, int type_size, comm_size_t len) {
+    comm_size_t used_size = 0;
     const std::tuple<data_size_t, double, double> *p1;
     std::tuple<data_size_t, double, double> *p2;
     while (used_size < len) {
@@ -130,7 +131,7 @@ void VotingParallelTreeLearner<TREELEARNER_T>::BeforeTrain() {
     }
   });
 
-  std::memcpy(&data, output_buffer_.data(), size);
+  std::memcpy((void*)&data, output_buffer_.data(), size);
 
   // set global sumup info
   smaller_leaf_splits_global_->Init(std::get<1>(data), std::get<2>(data));
@@ -169,7 +170,7 @@ void VotingParallelTreeLearner<TREELEARNER_T>::GlobalVoting(int leaf_idx, const 
   }
   // get mean number on machines
   score_t mean_num_data = GetGlobalDataCountInLeaf(leaf_idx) / static_cast<score_t>(num_machines_);
-  std::vector<LightSplitInfo> feature_best_split(this->num_features_, LightSplitInfo());
+  std::vector<LightSplitInfo> feature_best_split(this->train_data_->num_total_features() , LightSplitInfo());
   for (auto & split : splits) {
     int fid = split.feature;
     if (fid < 0) {
@@ -291,6 +292,8 @@ void VotingParallelTreeLearner<TREELEARNER_T>::FindBestSplits() {
       this->smaller_leaf_splits_->sum_gradients(),
       this->smaller_leaf_splits_->sum_hessians(),
       this->smaller_leaf_splits_->num_data_in_leaf(),
+      this->smaller_leaf_splits_->min_constraint(),
+      this->smaller_leaf_splits_->max_constraint(),
       &smaller_bestsplit_per_features[feature_index]);
     smaller_bestsplit_per_features[feature_index].feature = real_feature_index;
     // only has root leaf
@@ -308,6 +311,8 @@ void VotingParallelTreeLearner<TREELEARNER_T>::FindBestSplits() {
       this->larger_leaf_splits_->sum_gradients(),
       this->larger_leaf_splits_->sum_hessians(),
       this->larger_leaf_splits_->num_data_in_leaf(),
+      this->larger_leaf_splits_->min_constraint(),
+      this->larger_leaf_splits_->max_constraint(),
       &larger_bestsplit_per_features[feature_index]);
     larger_bestsplit_per_features[feature_index].feature = real_feature_index;
     OMP_LOOP_EX_END();
@@ -357,8 +362,8 @@ void VotingParallelTreeLearner<TREELEARNER_T>::FindBestSplits() {
   CopyLocalHistogram(smaller_top_features, larger_top_features);
 
   // Reduce scatter for histogram
-  Network::ReduceScatter(input_buffer_.data(), reduce_scatter_size_, block_start_.data(), block_len_.data(),
-    output_buffer_.data(), &HistogramBinEntry::SumReducer);
+  Network::ReduceScatter(input_buffer_.data(), reduce_scatter_size_, sizeof(HistogramBinEntry), block_start_.data(), block_len_.data(),
+                         output_buffer_.data(), static_cast<comm_size_t>(output_buffer_.size()), &HistogramBinEntry::SumReducer);
 
   this->FindBestSplitsFromHistograms(is_feature_used, false);
 }
@@ -392,6 +397,8 @@ void VotingParallelTreeLearner<TREELEARNER_T>::FindBestSplitsFromHistograms(cons
         smaller_leaf_splits_global_->sum_gradients(),
         smaller_leaf_splits_global_->sum_hessians(),
         GetGlobalDataCountInLeaf(smaller_leaf_splits_global_->LeafIndex()),
+        smaller_leaf_splits_global_->min_constraint(),
+        smaller_leaf_splits_global_->max_constraint(),
         &smaller_split);
       smaller_split.feature = real_feature_index;
       if (smaller_split > smaller_bests_per_thread[tid]) {
@@ -414,6 +421,8 @@ void VotingParallelTreeLearner<TREELEARNER_T>::FindBestSplitsFromHistograms(cons
         larger_leaf_splits_global_->sum_gradients(),
         larger_leaf_splits_global_->sum_hessians(),
         GetGlobalDataCountInLeaf(larger_leaf_splits_global_->LeafIndex()),
+        larger_leaf_splits_global_->min_constraint(),
+        larger_leaf_splits_global_->max_constraint(),
         &larger_split);
       larger_split.feature = real_feature_index;
       if (larger_split > larger_best_per_thread[tid]) {
@@ -458,6 +467,8 @@ void VotingParallelTreeLearner<TREELEARNER_T>::Split(Tree* tree, int best_Leaf, 
   // set the global number of data for leaves
   global_data_count_in_leaf_[*left_leaf] = best_split_info.left_count;
   global_data_count_in_leaf_[*right_leaf] = best_split_info.right_count;
+  auto p_left = smaller_leaf_splits_global_.get();
+  auto p_right = larger_leaf_splits_global_.get();
   // init the global sumup info
   if (best_split_info.left_count < best_split_info.right_count) {
     smaller_leaf_splits_global_->Init(*left_leaf, this->data_partition_.get(),
@@ -473,6 +484,22 @@ void VotingParallelTreeLearner<TREELEARNER_T>::Split(Tree* tree, int best_Leaf, 
     larger_leaf_splits_global_->Init(*left_leaf, this->data_partition_.get(),
       best_split_info.left_sum_gradient,
       best_split_info.left_sum_hessian);
+    p_left = larger_leaf_splits_global_.get();
+    p_right = smaller_leaf_splits_global_.get();
+  }
+  const int inner_feature_index = this->train_data_->InnerFeatureIndex(best_split_info.feature);
+  bool is_numerical_split = this->train_data_->FeatureBinMapper(inner_feature_index)->bin_type() == BinType::NumericalBin;
+  p_left->SetValueConstraint(best_split_info.min_constraint, best_split_info.max_constraint);
+  p_right->SetValueConstraint(best_split_info.min_constraint, best_split_info.max_constraint);
+  if (is_numerical_split) {
+    double mid = (best_split_info.left_output + best_split_info.right_output) / 2.0f;
+    if (best_split_info.monotone_type < 0) {
+      p_left->SetValueConstraint(mid, best_split_info.max_constraint);
+      p_right->SetValueConstraint(best_split_info.min_constraint, mid);
+    } else if (best_split_info.monotone_type > 0) {
+      p_left->SetValueConstraint(best_split_info.min_constraint, mid);
+      p_right->SetValueConstraint(mid, best_split_info.max_constraint);
+    }
   }
 }
 

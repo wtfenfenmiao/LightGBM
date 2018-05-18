@@ -4,6 +4,7 @@
 #include <LightGBM/boosting.h>
 #include <LightGBM/objective_function.h>
 #include <LightGBM/prediction_early_stop.h>
+#include <LightGBM/json11.hpp>
 
 #include "score_updater.hpp"
 
@@ -13,13 +14,16 @@
 #include <fstream>
 #include <memory>
 #include <mutex>
+#include <map>
+
+using namespace json11;
 
 namespace LightGBM {
 
 /*!
 * \brief GBDT algorithm implementation. including Training, prediction, bagging.
 */
-class GBDT: public GBDTBase {
+class GBDT : public GBDTBase {
 public:
 
   /*!
@@ -39,7 +43,8 @@ public:
   * \param objective_function Training objective function
   * \param training_metrics Training metrics
   */
-  void Init(const BoostingConfig* gbdt_config, const Dataset* train_data, const ObjectiveFunction* objective_function,
+  void Init(const BoostingConfig* gbdt_config, const Dataset* train_data,
+            const ObjectiveFunction* objective_function,
             const std::vector<const Metric*>& training_metrics) override;
 
   /*!
@@ -94,6 +99,8 @@ public:
   * \param model_output_path path of model file
   */
   void Train(int snapshot_freq, const std::string& model_output_path) override;
+
+  void RefitTree(const std::vector<std::vector<int>>& tree_leaf_prediction) override;
 
   /*!
   * \brief Training logic
@@ -178,7 +185,7 @@ public:
         num_preb_in_one_row *= max_iteration;
       }
     } else if (is_pred_contrib) {
-      num_preb_in_one_row = max_feature_idx_ + 2; // +1 for 0-based indexing, +1 for baseline
+      num_preb_in_one_row = num_tree_per_iteration_ * (max_feature_idx_ + 2); // +1 for 0-based indexing, +1 for baseline
     }
     return num_preb_in_one_row;
   }
@@ -186,10 +193,18 @@ public:
   void PredictRaw(const double* features, double* output,
                   const PredictionEarlyStopInstance* earlyStop) const override;
 
+  void PredictRawByMap(const std::unordered_map<int, double>& features, double* output,
+                       const PredictionEarlyStopInstance* early_stop) const override;
+
   void Predict(const double* features, double* output,
                const PredictionEarlyStopInstance* earlyStop) const override;
 
+  void PredictByMap(const std::unordered_map<int, double>& features, double* output,
+                    const PredictionEarlyStopInstance* early_stop) const override;
+
   void PredictLeafIndex(const double* features, double* output) const override;
+
+  void PredictLeafIndexByMap(const std::unordered_map<int, double>& features, double* output) const override;
 
   void PredictContrib(const double* features, double* output,
                       const PredictionEarlyStopInstance* earlyStop) const override;
@@ -232,9 +247,9 @@ public:
   virtual std::string SaveModelToString(int num_iterations) const override;
 
   /*!
-  * \brief Restore from a serialized string
+  * \brief Restore from a serialized buffer
   */
-  bool LoadModelFromString(const std::string& model_str) override;
+  bool LoadModelFromString(const char* buffer, size_t len) override;
 
   /*!
   * \brief Calculate feature importances
@@ -280,10 +295,16 @@ public:
   */
   inline int NumberOfClasses() const override { return num_class_; }
 
-  inline void InitPredict(int num_iteration) override {
+  inline void InitPredict(int num_iteration, bool is_pred_contrib) override {
     num_iteration_for_pred_ = static_cast<int>(models_.size()) / num_tree_per_iteration_;
     if (num_iteration > 0) {
       num_iteration_for_pred_ = std::min(num_iteration, num_iteration_for_pred_);
+    }
+    if (is_pred_contrib) {
+      #pragma omp parallel for schedule(static)
+      for (int i = 0; i < static_cast<int>(models_.size()); ++i) {
+        models_[i]->RecomputeMaxDepth();
+      }
     }
   }
 
@@ -435,6 +456,8 @@ protected:
   std::unique_ptr<ObjectiveFunction> loaded_objective_;
   bool average_output_;
   bool need_re_bagging_;
+
+  Json forced_splits_json_;
 };
 
 }  // namespace LightGBM

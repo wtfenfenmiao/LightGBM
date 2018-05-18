@@ -18,7 +18,9 @@ lightgbm <- function(data,
   
   # Set data to a temporary variable
   dtrain <- data
-  
+  if (nrounds <= 0) {
+    stop("nrounds should be greater than zero")
+  }
   # Check whether data is lgb.Dataset, if not then create lgb.Dataset manually
   if (!lgb.is.Dataset(dtrain)) {
     dtrain <- lgb.Dataset(data, label = label, weight = weight)
@@ -120,5 +122,28 @@ NULL
 # Various imports
 #' @import methods
 #' @importFrom R6 R6Class
-#' @useDynLib lightgbm
+#' @useDynLib lib_lightgbm
 NULL
+
+# Suppress false positive warnings from R CMD CHECK about
+# "unrecognized global variable"
+globalVariables(c(
+    "."
+    , ".N"
+    , ".SD"
+    , "Contribution"
+    , "Cover"
+    , "Feature"
+    , "Frequency"
+    , "Gain"
+    , "internal_count"
+    , "internal_value"
+    , "leaf_index"
+    , "leaf_parent"
+    , "leaf_value"
+    , "node_parent"
+    , "split_feature"
+    , "split_gain"
+    , "split_index"
+    , "tree_index"
+))

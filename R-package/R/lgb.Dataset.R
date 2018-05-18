@@ -67,6 +67,14 @@ Dataset <- R6Class(
         }
       }
       
+      # Check for matrix format
+      if (is.matrix(data)) {
+        # Check whether matrix is the correct type first ("double")
+        if (storage.mode(data) != "double") {
+          storage.mode(data) <- "double"
+        }
+      }
+      
       # Setup private attributes
       private$raw_data <- data
       private$params <- params
@@ -167,7 +175,7 @@ Dataset <- R6Class(
       if (!is.null(private$reference)) {
         ref_handle <- private$reference$.__enclos_env__$private$get_handle()
       }
-      handle <- 0.0
+      handle <- NA_real_
       
       # Not subsetting
       if (is.null(private$used_indices)) {
@@ -193,7 +201,9 @@ Dataset <- R6Class(
                              ref_handle)
           
         } else if (is(private$raw_data, "dgCMatrix")) {
-          
+          if (length(private$raw_data@p) > 2147483647) {
+            stop("Cannot support large CSC matrix")
+          }
           # Are we using a dgCMatrix (sparsed matrix column compressed)
           handle <- lgb.call("LGBM_DatasetCreateFromCSC_R",
                              ret = handle,
@@ -377,8 +387,10 @@ Dataset <- R6Class(
       }
       
       # Check for info name and handle
-      if (is.null(private$info[[name]]) && !lgb.is.null.handle(private$handle)) {
-        
+      if (is.null(private$info[[name]])) {
+        if (lgb.is.null.handle(private$handle)){
+          stop("Cannot perform getinfo before construct Dataset.")
+        }
         # Get field size of info
         info_len <- 0L
         info_len <- lgb.call("LGBM_DatasetGetFieldSize_R",

@@ -1,3 +1,6 @@
+GPU SDK Correspondence and Device Targeting Table
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 GPU Targets Table
 =================
 
@@ -11,9 +14,9 @@ You can find below a table of correspondence:
 +===========================+=================+=================+=================+==============+
 | `Intel SDK for OpenCL`_   | Supported       | Supported \*    | Supported       | Untested     |
 +---------------------------+-----------------+-----------------+-----------------+--------------+
-| `AMD APP SDK`_            | Supported       | Untested \*     | Supported       | Untested     |
+| `AMD APP SDK`_            | Supported       | Untested \*     | Supported       | Fails        |
 +---------------------------+-----------------+-----------------+-----------------+--------------+
-| `NVIDIA CUDA Toolkit`_    | Untested \*\*   | Untested \*\*   | Untested \*\*   | Supported    |
+| `NVIDIA CUDA Toolkit`_    | Fails    \*\*   | Fails    \*\*   | Fails    \*\*   | Supported    |
 +---------------------------+-----------------+-----------------+-----------------+--------------+
 
 Legend:
@@ -72,6 +75,9 @@ Using a bad ``gpu_device_id`` is not critical, as it will fallback to:
 
 However, using a bad combination of ``gpu_platform_id`` and ``gpu_device_id`` will lead to a **crash** (you will lose your entire session content).
 Beware of it.
+
+Your system might have multiple GPUs from different vendors ("platforms") installed. You can use the `clinfo`_ utility to identify the GPUs on each platform. On Ubuntu, you can install ``clinfo`` by executing ``sudo apt-get install clinfo``. On Windows, you can find a list of your OpenCL devices using the utility `GPUCapsViewer`_. If you have a discrete GPU by AMD/NVIDIA and an integrated GPU by Intel, make sure to select the correct ``gpu_platform_id`` to use the discrete GPU.
+
 
 CPU Only Architectures
 ----------------------
@@ -280,6 +286,12 @@ Keep in mind that using the integrated graphics card is not directly possible wi
 
 .. _Intel SDK for OpenCL: https://software.intel.com/en-us/articles/opencl-drivers
 
-.. _AMD APP SDK: http://developer.amd.com/amd-accelerated-parallel-processing-app-sdk/
+.. _AMD APP SDK: http://developer.amd.com/  # amd-accelerated-parallel-processing-app-sdk/
 
 .. _NVIDIA CUDA Toolkit: https://developer.nvidia.com/cuda-downloads
+
+.. _clinfo: https://github.com/Oblomov/clinfo
+
+.. _GPUCapsViewer: http://www.ozone3d.net/gpu_caps_viewer/
+
+

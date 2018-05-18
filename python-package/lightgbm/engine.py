@@ -38,9 +38,11 @@ def train(params, train_set, num_boost_round=100,
         Names of ``valid_sets``.
     fobj : callable or None, optional (default=None)
         Customized objective function.
-    feval : callable or None, optional (default=None)
+    feval : callable, string or None, optional (default=None)
         Customized evaluation function.
+        Should accept two parameters: preds, train_data.
         Note: should return (eval_name, eval_result, is_higher_better) or list of such tuples.
+        To ignore the default metric in params, set it to the string ``"None"``
     init_model : string or None, optional (default=None)
         Filename of LightGBM model or Booster instance used for continue training.
     feature_name : list of strings or 'auto', optional (default="auto")
@@ -92,18 +94,20 @@ def train(params, train_set, num_boost_round=100,
     booster : Booster
         The trained Booster model.
     """
-    """create predictor first"""
-    for alias in ["num_boost_round", "num_iterations", "num_iteration", "num_tree", "num_trees", "num_round", "num_rounds"]:
+    # create predictor first
+    for alias in ["num_boost_round", "num_iterations", "num_iteration", "num_tree", "num_trees", "num_round", "num_rounds", "n_estimators"]:
         if alias in params:
+            num_boost_round = int(params.pop(alias))
             warnings.warn("Found `{}` in params. Will use it instead of argument".format(alias))
-            num_boost_round = params.pop(alias)
             break
     for alias in ["early_stopping_round", "early_stopping_rounds", "early_stopping"]:
-        if alias in params:
+        if alias in params and params[alias] is not None:
+            early_stopping_rounds = int(params.pop(alias))
             warnings.warn("Found `{}` in params. Will use it instead of argument".format(alias))
-            early_stopping_rounds = params.pop(alias)
             break
 
+    if num_boost_round <= 0:
+        raise ValueError("num_boost_round should be greater than zero.")
     if isinstance(init_model, string_type):
         predictor = _InnerPredictor(model_file=init_model)
     elif isinstance(init_model, Booster):
@@ -111,7 +115,7 @@ def train(params, train_set, num_boost_round=100,
     else:
         predictor = None
     init_iteration = predictor.num_total_iteration if predictor is not None else 0
-    """check dataset"""
+    # check dataset
     if not isinstance(train_set, Dataset):
         raise TypeError("Training only accepts Dataset object")
 
@@ -130,7 +134,7 @@ def train(params, train_set, num_boost_round=100,
         if isinstance(valid_names, string_type):
             valid_names = [valid_names]
         for i, valid_data in enumerate(valid_sets):
-            """reduce cost for prediction training data"""
+            # reduce cost for prediction training data
             if valid_data is train_set:
                 is_valid_contain_train = True
                 if valid_names is not None:
@@ -145,7 +149,7 @@ def train(params, train_set, num_boost_round=100,
                 name_valid_sets.append(valid_names[i])
             else:
                 name_valid_sets.append('valid_' + str(i))
-    """process callbacks"""
+    # process callbacks
     if callbacks is None:
         callbacks = set()
     else:
@@ -173,7 +177,7 @@ def train(params, train_set, num_boost_round=100,
     callbacks_before_iter = sorted(callbacks_before_iter, key=attrgetter('order'))
     callbacks_after_iter = sorted(callbacks_after_iter, key=attrgetter('order'))
 
-    """construct booster"""
+    # construct booster
     try:
         booster = Booster(params=params, train_set=train_set)
         if is_valid_contain_train:
@@ -186,7 +190,7 @@ def train(params, train_set, num_boost_round=100,
             valid_set._reverse_update_params()
     booster.best_iteration = 0
 
-    """start training"""
+    # start training
     for i in range_(init_iteration, init_iteration + num_boost_round):
         for cb in callbacks_before_iter:
             cb(callback.CallbackEnv(model=booster,
@@ -220,7 +224,7 @@ def train(params, train_set, num_boost_round=100,
     for dataset_name, eval_name, score, _ in evaluation_result_list:
         booster.best_score[dataset_name][eval_name] = score
     if not keep_training_booster:
-        booster._load_model_from_string(booster._save_model_to_string())
+        booster._load_model_from_string(booster._save_model_to_string(), False)
         booster.free_dataset()
     return booster
 
@@ -307,7 +311,7 @@ def _agg_cv_result(raw_results):
     return [('cv_agg', k, np.mean(v), metric_type[k], np.std(v)) for k, v in cvmap.items()]
 
 
-def cv(params, train_set, num_boost_round=10,
+def cv(params, train_set, num_boost_round=100,
        folds=None, nfold=5, stratified=True, shuffle=True,
        metrics=None, fobj=None, feval=None, init_model=None,
        feature_name='auto', categorical_feature='auto',
@@ -322,7 +326,7 @@ def cv(params, train_set, num_boost_round=10,
         Parameters for Booster.
     train_set : Dataset
         Data to be trained on.
-    num_boost_round : int, optional (default=10)
+    num_boost_round : int, optional (default=100)
         Number of boosting iterations.
     folds : a generator or iterator of (train_idx, test_idx) tuples or None, optional (default=None)
         The train and test indices for the each fold.
@@ -377,13 +381,13 @@ def cv(params, train_set, num_boost_round=10,
         Evaluation history.
         The dictionary has the following format:
         {'metric1-mean': [values], 'metric1-stdv': [values],
-        'metric2-mean': [values], 'metric1-stdv': [values],
+        'metric2-mean': [values], 'metric2-stdv': [values],
         ...}.
     """
     if not isinstance(train_set, Dataset):
         raise TypeError("Traninig only accepts Dataset object")
 
-    for alias in ["num_boost_round", "num_iterations", "num_iteration", "num_tree", "num_trees", "num_round", "num_rounds"]:
+    for alias in ["num_boost_round", "num_iterations", "num_iteration", "num_tree", "num_trees", "num_round", "num_rounds", "n_estimators"]:
         if alias in params:
             warnings.warn("Found `{}` in params. Will use it instead of argument".format(alias))
             num_boost_round = params.pop(alias)
@@ -394,6 +398,8 @@ def cv(params, train_set, num_boost_round=10,
             early_stopping_rounds = params.pop(alias)
             break
 
+    if num_boost_round <= 0:
+        raise ValueError("num_boost_round should be greater than zero.")
     if isinstance(init_model, string_type):
         predictor = _InnerPredictor(model_file=init_model)
     elif isinstance(init_model, Booster):

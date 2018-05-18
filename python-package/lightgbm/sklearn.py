@@ -5,23 +5,14 @@ from __future__ import absolute_import
 
 import numpy as np
 import warnings
-try:
-    import pandas as pd
-    _IS_PANDAS_INSTALLED = True
-except ImportError:
-    _IS_PANDAS_INSTALLED = False
 
 from .basic import Dataset, LightGBMError
-from .compat import (SKLEARN_INSTALLED, _LGBMClassifierBase, LGBMDeprecated,
+from .compat import (SKLEARN_INSTALLED, _LGBMClassifierBase,
                      LGBMNotFittedError, _LGBMLabelEncoder, _LGBMModelBase,
                      _LGBMRegressorBase, _LGBMCheckXY, _LGBMCheckArray, _LGBMCheckConsistentLength,
-                     _LGBMCheckClassificationTargets, argc_, range_)
+                     _LGBMCheckClassificationTargets, _LGBMComputeSampleWeight,
+                     argc_, range_, DataFrame, LGBMDeprecationWarning)
 from .engine import train
-
-
-# DeprecationWarning is not shown by default, so let's create our own with higher level
-class LGBMDeprecationWarning(UserWarning):
-    pass
 
 
 def _objective_function_wrapper(func):
@@ -138,11 +129,11 @@ class LGBMModel(_LGBMModelBase):
     """Implementation of the scikit-learn API for LightGBM."""
 
     def __init__(self, boosting_type="gbdt", num_leaves=31, max_depth=-1,
-                 learning_rate=0.1, n_estimators=10, max_bin=255,
-                 subsample_for_bin=50000, objective=None,
-                 min_split_gain=0., min_child_weight=5, min_child_samples=10,
-                 subsample=1., subsample_freq=1, colsample_bytree=1.,
-                 reg_alpha=0., reg_lambda=0., random_state=0,
+                 learning_rate=0.1, n_estimators=100,
+                 subsample_for_bin=200000, objective=None, class_weight=None,
+                 min_split_gain=0., min_child_weight=1e-3, min_child_samples=20,
+                 subsample=1., subsample_freq=0, colsample_bytree=1.,
+                 reg_alpha=0., reg_lambda=0., random_state=None,
                  n_jobs=-1, silent=True, **kwargs):
         """Construct a gradient boosting model.
 
@@ -159,25 +150,35 @@ class LGBMModel(_LGBMModelBase):
             Maximum tree depth for base learners, -1 means no limit.
         learning_rate : float, optional (default=0.1)
             Boosting learning rate.
-        n_estimators : int, optional (default=10)
+            You can use ``callbacks`` parameter of ``fit`` method to shrink/adapt learning rate
+            in training using ``reset_parameter`` callback.
+            Note, that this will ignore the ``learning_rate`` argument in training.
+        n_estimators : int, optional (default=100)
             Number of boosted trees to fit.
-        max_bin : int, optional (default=255)
-            Number of bucketed bin for feature values.
         subsample_for_bin : int, optional (default=50000)
             Number of samples for constructing bins.
         objective : string, callable or None, optional (default=None)
             Specify the learning task and the corresponding learning objective or
             a custom objective function to be used (see note below).
-            default: 'binary' for LGBMClassifier, 'lambdarank' for LGBMRanker.
+            default: 'regression' for LGBMRegressor, 'binary' or 'multiclass' for LGBMClassifier, 'lambdarank' for LGBMRanker.
+        class_weight : dict, 'balanced' or None, optional (default=None)
+            Weights associated with classes in the form ``{class_label: weight}``.
+            Use this parameter only for multi-class classification task;
+            for binary classification task you may use ``is_unbalance`` or ``scale_pos_weight`` parameters.
+            The 'balanced' mode uses the values of y to automatically adjust weights
+            inversely proportional to class frequencies in the input data as ``n_samples / (n_classes * np.bincount(y))``.
+            If None, all classes are supposed to have weight one.
+            Note that these weights will be multiplied with ``sample_weight`` (passed through the fit method)
+            if ``sample_weight`` is specified.
         min_split_gain : float, optional (default=0.)
             Minimum loss reduction required to make a further partition on a leaf node of the tree.
-        min_child_weight : int, optional (default=5)
+        min_child_weight : float, optional (default=1e-3)
             Minimum sum of instance weight(hessian) needed in a child(leaf).
-        min_child_samples : int, optional (default=10)
+        min_child_samples : int, optional (default=20)
             Minimum number of data need in a child(leaf).
         subsample : float, optional (default=1.)
             Subsample ratio of the training instance.
-        subsample_freq : int, optional (default=1)
+        subsample_freq : int, optional (default=0)
             Frequence of subsample, <=0 means no enable.
         colsample_bytree : float, optional (default=1.)
             Subsample ratio of columns when constructing each tree.
@@ -185,8 +186,9 @@ class LGBMModel(_LGBMModelBase):
             L1 regularization term on weights.
         reg_lambda : float, optional (default=0.)
             L2 regularization term on weights.
-        random_state : int, optional (default=0)
+        random_state : int or None, optional (default=None)
             Random number seed.
+            Will use default seeds in c++ code if set to None.
         n_jobs : int, optional (default=-1)
             Number of parallel threads.
         silent : bool, optional (default=True)
@@ -196,7 +198,7 @@ class LGBMModel(_LGBMModelBase):
 
             Note
             ----
-            \*\*kwargs is not supported in sklearn, it may cause unexpected issues.
+            \\*\\*kwargs is not supported in sklearn, it may cause unexpected issues.
 
         Attributes
         ----------
@@ -250,7 +252,6 @@ class LGBMModel(_LGBMModelBase):
         self.max_depth = max_depth
         self.learning_rate = learning_rate
         self.n_estimators = n_estimators
-        self.max_bin = max_bin
         self.subsample_for_bin = subsample_for_bin
         self.min_split_gain = min_split_gain
         self.min_child_weight = min_child_weight
@@ -268,7 +269,8 @@ class LGBMModel(_LGBMModelBase):
         self._best_score = None
         self._best_iteration = None
         self._other_params = {}
-        self._objective = None
+        self._objective = objective
+        self.class_weight = class_weight
         self._n_features = None
         self._classes = None
         self._n_classes = None
@@ -277,27 +279,23 @@ class LGBMModel(_LGBMModelBase):
     def get_params(self, deep=True):
         params = super(LGBMModel, self).get_params(deep=deep)
         params.update(self._other_params)
-        if 'seed' in params:
-            warnings.warn('The `seed` parameter is deprecated and will be removed in next version. '
-                          'Please use `random_state` instead.', LGBMDeprecationWarning)
-        if 'nthread' in params:
-            warnings.warn('The `nthread` parameter is deprecated and will be removed in next version. '
-                          'Please use `n_jobs` instead.', LGBMDeprecationWarning)
         return params
 
     # minor change to support `**kwargs`
     def set_params(self, **params):
         for key, value in params.items():
             setattr(self, key, value)
+            if hasattr(self, '_' + key):
+                setattr(self, '_' + key, value)
             self._other_params[key] = value
         return self
 
     def fit(self, X, y,
             sample_weight=None, init_score=None, group=None,
             eval_set=None, eval_names=None, eval_sample_weight=None,
-            eval_init_score=None, eval_group=None, eval_metric=None,
-            early_stopping_rounds=None, verbose=True, feature_name='auto',
-            categorical_feature='auto', callbacks=None):
+            eval_class_weight=None, eval_init_score=None, eval_group=None,
+            eval_metric=None, early_stopping_rounds=None, verbose=True,
+            feature_name='auto', categorical_feature='auto', callbacks=None):
         """Build a gradient boosting model from the training set (X, y).
 
         Parameters
@@ -310,14 +308,16 @@ class LGBMModel(_LGBMModelBase):
             Weights of training data.
         init_score : array-like of shape = [n_samples] or None, optional (default=None)
             Init score of training data.
-        group : array-like of shape = [n_samples] or None, optional (default=None)
+        group : array-like or None, optional (default=None)
             Group data of training data.
         eval_set : list or None, optional (default=None)
             A list of (X, y) tuple pairs to use as a validation sets for early-stopping.
-        eval_names: list of strings or None, optional (default=None)
+        eval_names : list of strings or None, optional (default=None)
             Names of eval_set.
         eval_sample_weight : list of arrays or None, optional (default=None)
             Weights of eval data.
+        eval_class_weight : list or None, optional (default=None)
+            Class weights of eval data.
         eval_init_score : list of arrays or None, optional (default=None)
             Init score of eval data.
         eval_group : list of arrays or None, optional (default=None)
@@ -325,8 +325,10 @@ class LGBMModel(_LGBMModelBase):
         eval_metric : string, list of strings, callable or None, optional (default=None)
             If string, it should be a built-in evaluation metric to use.
             If callable, it should be a custom evaluation metric, see note for more details.
+            In either case, the ``metric`` from the model parameters will be evaluated and used as well.
         early_stopping_rounds : int or None, optional (default=None)
             Activates early stopping. The model will train until the validation score stops improving.
+            If there's more than one, will check all of them.
             Validation error needs to decrease at least every ``early_stopping_rounds`` round(s)
             to continue training.
         verbose : bool, optional (default=True)
@@ -374,8 +376,6 @@ class LGBMModel(_LGBMModelBase):
         For multi-class task, the y_pred is group by class_id first, then group by row_id.
         If you want to get i-th row y_pred in j-th class, the access way is y_pred[j * num_data + i].
         """
-        if not hasattr(self, '_objective'):
-            self._objective = self.objective
         if self._objective is None:
             if isinstance(self, LGBMRegressor):
                 self._objective = "regression"
@@ -396,9 +396,10 @@ class LGBMModel(_LGBMModelBase):
         params.setdefault('nthread', params.pop('n_jobs'))
         # user can set verbose with kwargs, it has higher priority
         if 'verbose' not in params and self.silent:
-            params['verbose'] = -1
+            params['verbose'] = 0
         params.pop('silent', None)
         params.pop('n_estimators', None)
+        params.pop('class_weight', None)
         if self._n_classes is not None and self._n_classes > 2:
             params['num_class'] = self._n_classes
         if hasattr(self, '_eval_at'):
@@ -413,14 +414,21 @@ class LGBMModel(_LGBMModelBase):
             feval = None
             params['metric'] = eval_metric
 
-        if not _IS_PANDAS_INSTALLED or not isinstance(X, pd.DataFrame):
+        if not isinstance(X, DataFrame):
             X, y = _LGBMCheckXY(X, y, accept_sparse=True, force_all_finite=False, ensure_min_samples=2)
             _LGBMCheckConsistentLength(X, y, sample_weight)
+
+        if self.class_weight is not None:
+            class_sample_weight = _LGBMComputeSampleWeight(self.class_weight, y)
+            if sample_weight is None or len(sample_weight) == 0:
+                sample_weight = class_sample_weight
+            else:
+                sample_weight = np.multiply(sample_weight, class_sample_weight)
 
         self._n_features = X.shape[1]
 
         def _construct_dataset(X, y, sample_weight, init_score, group, params):
-            ret = Dataset(X, label=y, max_bin=self.max_bin, weight=sample_weight, group=group, params=params)
+            ret = Dataset(X, label=y, weight=sample_weight, group=group, params=params)
             ret.set_init_score(init_score)
             return ret
 
@@ -431,7 +439,7 @@ class LGBMModel(_LGBMModelBase):
             if isinstance(eval_set, tuple):
                 eval_set = [eval_set]
             for i, valid_data in enumerate(eval_set):
-                """reduce cost for prediction training data"""
+                # reduce cost for prediction training data
                 if valid_data[0] is X and valid_data[1] is y:
                     valid_set = train_set
                 else:
@@ -443,8 +451,14 @@ class LGBMModel(_LGBMModelBase):
                         elif isinstance(collection, dict):
                             return collection.get(i, None)
                         else:
-                            raise TypeError('eval_sample_weight, eval_init_score, and eval_group should be dict or list')
+                            raise TypeError('eval_sample_weight, eval_class_weight, eval_init_score, and eval_group should be dict or list')
                     valid_weight = get_meta_data(eval_sample_weight, i)
+                    if get_meta_data(eval_class_weight, i) is not None:
+                        valid_class_sample_weight = _LGBMComputeSampleWeight(get_meta_data(eval_class_weight, i), valid_data[1])
+                        if valid_weight is None or len(valid_weight) == 0:
+                            valid_weight = valid_class_sample_weight
+                        else:
+                            valid_weight = np.multiply(valid_weight, valid_class_sample_weight)
                     valid_init_score = get_meta_data(eval_init_score, i)
                     valid_group = get_meta_data(eval_group, i)
                     valid_set = _construct_dataset(valid_data[0], valid_data[1], valid_weight, valid_init_score, valid_group, params)
@@ -471,7 +485,8 @@ class LGBMModel(_LGBMModelBase):
         del train_set, valid_sets
         return self
 
-    def predict(self, X, raw_score=False, num_iteration=0):
+    def predict(self, X, raw_score=False, num_iteration=-1,
+                pred_leaf=False, pred_contrib=False, **kwargs):
         """Return the predicted value for each sample.
 
         Parameters
@@ -480,17 +495,27 @@ class LGBMModel(_LGBMModelBase):
             Input features matrix.
         raw_score : bool, optional (default=False)
             Whether to predict raw scores.
-        num_iteration : int, optional (default=0)
-            Limit number of iterations in the prediction; defaults to 0 (use all trees).
+        num_iteration : int, optional (default=-1)
+            Limit number of iterations in the prediction.
+            If <= 0, uses all trees (no limits).
+        pred_leaf : bool, optional (default=False)
+            Whether to predict leaf index.
+        pred_contrib : bool, optional (default=False)
+            Whether to predict feature contributions.
+        **kwargs : other parameters for the prediction
 
         Returns
         -------
         predicted_result : array-like of shape = [n_samples] or shape = [n_samples, n_classes]
             The predicted values.
+        X_leaves : array-like of shape = [n_samples, n_trees] or shape [n_samples, n_trees * n_classes]
+            If ``pred_leaf=True``, the predicted leaf every tree for each sample.
+        X_SHAP_values : array-like of shape = [n_samples, n_features + 1] or shape [n_samples, (n_features + 1) * n_classes]
+            If ``pred_contrib=True``, the each feature contributions for each sample.
         """
         if self._n_features is None:
             raise LGBMNotFittedError("Estimator not fitted, call `fit` before exploiting the model.")
-        if not _IS_PANDAS_INSTALLED or not isinstance(X, pd.DataFrame):
+        if not isinstance(X, DataFrame):
             X = _LGBMCheckArray(X, accept_sparse=True, force_all_finite=False)
         n_features = X.shape[1]
         if self._n_features != n_features:
@@ -498,7 +523,8 @@ class LGBMModel(_LGBMModelBase):
                              "match the input. Model n_features_ is %s and "
                              "input n_features is %s "
                              % (self._n_features, n_features))
-        return self.booster_.predict(X, raw_score=raw_score, num_iteration=num_iteration)
+        return self.booster_.predict(X, raw_score=raw_score, num_iteration=num_iteration,
+                                     pred_leaf=pred_leaf, pred_contrib=pred_contrib, **kwargs)
 
     def apply(self, X, num_iteration=0):
         """Return the predicted leaf every tree for each sample.
@@ -515,9 +541,12 @@ class LGBMModel(_LGBMModelBase):
         X_leaves : array-like of shape = [n_samples, n_trees]
             The predicted leaf every tree for each sample.
         """
+        warnings.warn('apply method is deprecated and will be removed in 2.2 version.\n'
+                      'Please use pred_leaf parameter of predict method instead.',
+                      LGBMDeprecationWarning)
         if self._n_features is None:
             raise LGBMNotFittedError("Estimator not fitted, call `fit` before exploiting the model.")
-        if not _IS_PANDAS_INSTALLED or not isinstance(X, pd.DataFrame):
+        if not isinstance(X, DataFrame):
             X = _LGBMCheckArray(X, accept_sparse=True, force_all_finite=False)
         n_features = X.shape[1]
         if self._n_features != n_features:
@@ -582,14 +611,6 @@ class LGBMModel(_LGBMModelBase):
             raise LGBMNotFittedError('No feature_importances found. Need to call fit beforehand.')
         return self.booster_.feature_importance()
 
-    @LGBMDeprecated('Use attribute booster_ instead.')
-    def booster(self):
-        return self.booster_
-
-    @LGBMDeprecated('Use attribute feature_importances_ instead.')
-    def feature_importance(self):
-        return self.feature_importances_
-
 
 class LGBMRegressor(LGBMModel, _LGBMRegressorBase):
     """LightGBM regressor."""
@@ -612,10 +633,13 @@ class LGBMRegressor(LGBMModel, _LGBMRegressorBase):
                                        callbacks=callbacks)
         return self
 
-    base_doc = LGBMModel.fit.__doc__
-    fit.__doc__ = (base_doc[:base_doc.find('eval_metric :')] +
-                   'eval_metric : string, list of strings, callable or None, optional (default="l2")\n' +
-                   base_doc[base_doc.find('            If string, it should be a built-in evaluation metric to use.'):])
+    _base_doc = LGBMModel.fit.__doc__
+    fit.__doc__ = (_base_doc[:_base_doc.find('eval_class_weight :')]
+                   + _base_doc[_base_doc.find('eval_init_score :'):])
+    _base_doc = fit.__doc__
+    fit.__doc__ = (_base_doc[:_base_doc.find('eval_metric :')]
+                   + 'eval_metric : string, list of strings, callable or None, optional (default="l2")\n'
+                   + _base_doc[_base_doc.find('            If string, it should be a built-in evaluation metric to use.'):])
 
 
 class LGBMClassifier(LGBMModel, _LGBMClassifierBase):
@@ -624,7 +648,7 @@ class LGBMClassifier(LGBMModel, _LGBMClassifierBase):
     def fit(self, X, y,
             sample_weight=None, init_score=None,
             eval_set=None, eval_names=None, eval_sample_weight=None,
-            eval_init_score=None, eval_metric="logloss",
+            eval_class_weight=None, eval_init_score=None, eval_metric="logloss",
             early_stopping_rounds=None, verbose=True,
             feature_name='auto', categorical_feature='auto', callbacks=None):
         _LGBMCheckClassificationTargets(y)
@@ -635,7 +659,9 @@ class LGBMClassifier(LGBMModel, _LGBMClassifierBase):
         self._n_classes = len(self._classes)
         if self._n_classes > 2:
             # Switch to using a multiclass objective in the underlying LGBM instance
-            self._objective = "multiclass"
+            ova_aliases = ("multiclassova", "multiclass_ova", "ova", "ovr")
+            if self._objective not in ova_aliases and not callable(self._objective):
+                self._objective = "multiclass"
             if eval_metric == 'logloss' or eval_metric == 'binary_logloss':
                 eval_metric = "multi_logloss"
             elif eval_metric == 'error' or eval_metric == 'binary_error':
@@ -659,6 +685,7 @@ class LGBMClassifier(LGBMModel, _LGBMClassifierBase):
                                         init_score=init_score, eval_set=eval_set,
                                         eval_names=eval_names,
                                         eval_sample_weight=eval_sample_weight,
+                                        eval_class_weight=eval_class_weight,
                                         eval_init_score=eval_init_score,
                                         eval_metric=eval_metric,
                                         early_stopping_rounds=early_stopping_rounds,
@@ -667,17 +694,23 @@ class LGBMClassifier(LGBMModel, _LGBMClassifierBase):
                                         callbacks=callbacks)
         return self
 
-    base_doc = LGBMModel.fit.__doc__
-    fit.__doc__ = (base_doc[:base_doc.find('eval_metric :')] +
-                   'eval_metric : string, list of strings, callable or None, optional (default="logloss")\n' +
-                   base_doc[base_doc.find('            If string, it should be a built-in evaluation metric to use.'):])
+    _base_doc = LGBMModel.fit.__doc__
+    fit.__doc__ = (_base_doc[:_base_doc.find('eval_metric :')]
+                   + 'eval_metric : string, list of strings, callable or None, optional (default="logloss")\n'
+                   + _base_doc[_base_doc.find('            If string, it should be a built-in evaluation metric to use.'):])
 
-    def predict(self, X, raw_score=False, num_iteration=0):
-        class_probs = self.predict_proba(X, raw_score, num_iteration)
-        class_index = np.argmax(class_probs, axis=1)
-        return self._le.inverse_transform(class_index)
+    def predict(self, X, raw_score=False, num_iteration=-1,
+                pred_leaf=False, pred_contrib=False, **kwargs):
+        result = self.predict_proba(X, raw_score, num_iteration,
+                                    pred_leaf, pred_contrib, **kwargs)
+        if raw_score or pred_leaf or pred_contrib:
+            return result
+        else:
+            class_index = np.argmax(result, axis=1)
+            return self._le.inverse_transform(class_index)
 
-    def predict_proba(self, X, raw_score=False, num_iteration=0):
+    def predict_proba(self, X, raw_score=False, num_iteration=-1,
+                      pred_leaf=False, pred_contrib=False, **kwargs):
         """Return the predicted probability for each class for each sample.
 
         Parameters
@@ -686,29 +719,30 @@ class LGBMClassifier(LGBMModel, _LGBMClassifierBase):
             Input features matrix.
         raw_score : bool, optional (default=False)
             Whether to predict raw scores.
-        num_iteration : int, optional (default=0)
-            Limit number of iterations in the prediction; defaults to 0 (use all trees).
+        num_iteration : int, optional (default=-1)
+            Limit number of iterations in the prediction.
+            If <= 0, uses all trees (no limits).
+        pred_leaf : bool, optional (default=False)
+            Whether to predict leaf index.
+        pred_contrib : bool, optional (default=False)
+            Whether to predict feature contributions.
+        **kwargs : other parameters for the prediction
 
         Returns
         -------
         predicted_probability : array-like of shape = [n_samples, n_classes]
             The predicted probability for each class for each sample.
+        X_leaves : array-like of shape = [n_samples, n_trees * n_classes]
+            If ``pred_leaf=True``, the predicted leaf every tree for each sample.
+        X_SHAP_values : array-like of shape = [n_samples, (n_features + 1) * n_classes]
+            If ``pred_contrib=True``, the each feature contributions for each sample.
         """
-        if self._n_features is None:
-            raise LGBMNotFittedError("Estimator not fitted, call `fit` before exploiting the model.")
-        if not _IS_PANDAS_INSTALLED or not isinstance(X, pd.DataFrame):
-            X = _LGBMCheckArray(X, accept_sparse=True, force_all_finite=False)
-        n_features = X.shape[1]
-        if self._n_features != n_features:
-            raise ValueError("Number of features of the model must "
-                             "match the input. Model n_features_ is %s and "
-                             "input n_features is %s "
-                             % (self._n_features, n_features))
-        class_probs = self.booster_.predict(X, raw_score=raw_score, num_iteration=num_iteration)
-        if self._n_classes > 2:
-            return class_probs
+        result = super(LGBMClassifier, self).predict(X, raw_score, num_iteration,
+                                                     pred_leaf, pred_contrib, **kwargs)
+        if self._n_classes > 2 or pred_leaf or pred_contrib:
+            return result
         else:
-            return np.vstack((1. - class_probs, class_probs)).transpose()
+            return np.vstack((1. - result, result)).transpose()
 
     @property
     def classes_(self):
@@ -761,10 +795,13 @@ class LGBMRanker(LGBMModel):
                                     callbacks=callbacks)
         return self
 
-    base_doc = LGBMModel.fit.__doc__
-    fit.__doc__ = (base_doc[:base_doc.find('eval_metric :')] +
-                   'eval_metric : string, list of strings, callable or None, optional (default="ndcg")\n' +
-                   base_doc[base_doc.find('            If string, it should be a built-in evaluation metric to use.'):base_doc.find('early_stopping_rounds :')] +
-                   'eval_at : list of int, optional (default=[1])\n'
-                   '            The evaluation positions of NDCG.\n' +
-                   base_doc[base_doc.find('        early_stopping_rounds :'):])
+    _base_doc = LGBMModel.fit.__doc__
+    fit.__doc__ = (_base_doc[:_base_doc.find('eval_class_weight :')]
+                   + _base_doc[_base_doc.find('eval_init_score :'):])
+    _base_doc = fit.__doc__
+    fit.__doc__ = (_base_doc[:_base_doc.find('eval_metric :')]
+                   + 'eval_metric : string, list of strings, callable or None, optional (default="ndcg")\n'
+                   + _base_doc[_base_doc.find('            If string, it should be a built-in evaluation metric to use.'):_base_doc.find('early_stopping_rounds :')]
+                   + 'eval_at : list of int, optional (default=[1])\n'
+                     '            The evaluation positions of NDCG.\n'
+                   + _base_doc[_base_doc.find('        early_stopping_rounds :'):])

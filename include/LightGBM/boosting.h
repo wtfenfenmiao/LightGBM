@@ -6,6 +6,7 @@
 
 #include <vector>
 #include <string>
+#include <map>
 
 namespace LightGBM {
 
@@ -48,6 +49,8 @@ public:
 
   virtual void ResetConfig(const BoostingConfig* config) = 0;
 
+
+
   /*!
   * \brief Add a validation data
   * \param valid_data Validation data
@@ -57,6 +60,11 @@ public:
                                const std::vector<const Metric*>& valid_metrics) = 0;
 
   virtual void Train(int snapshot_freq, const std::string& model_output_path) = 0;
+
+  /*!
+  * \brief Update the tree output by new training data
+  */
+  virtual void RefitTree(const std::vector<std::vector<int>>& tree_leaf_prediction) = 0;
 
   /*!
   * \brief Training logic
@@ -116,6 +124,10 @@ public:
   virtual void PredictRaw(const double* features, double* output,
                           const PredictionEarlyStopInstance* early_stop) const = 0;
 
+  virtual void PredictRawByMap(const std::unordered_map<int, double>& features, double* output,
+                               const PredictionEarlyStopInstance* early_stop) const = 0;
+
+
   /*!
   * \brief Prediction for one record, sigmoid transformation will be used if needed
   * \param feature_values Feature value on this record
@@ -125,6 +137,10 @@ public:
   virtual void Predict(const double* features, double* output,
                        const PredictionEarlyStopInstance* early_stop) const = 0;
 
+  virtual void PredictByMap(const std::unordered_map<int, double>& features, double* output,
+                            const PredictionEarlyStopInstance* early_stop) const = 0;
+
+
   /*!
   * \brief Prediction for one record with leaf index
   * \param feature_values Feature value on this record
@@ -132,6 +148,9 @@ public:
   */
   virtual void PredictLeafIndex(
     const double* features, double* output) const = 0;
+
+  virtual void PredictLeafIndexByMap(
+    const std::unordered_map<int, double>& features, double* output) const = 0;
 
   /*!
   * \brief Feature contributions for the model's prediction of one record
@@ -166,7 +185,7 @@ public:
 
   /*!
   * \brief Save model to file
-  * \param num_used_model Number of model that want to save, -1 means save all
+  * \param num_iterations Number of model that want to save, -1 means save all
   * \param is_finish Is training finished or not
   * \param filename Filename that want to save to
   * \return true if succeeded
@@ -175,17 +194,18 @@ public:
 
   /*!
   * \brief Save model to string
-  * \param num_used_model Number of model that want to save, -1 means save all
+  * \param num_iterations Number of model that want to save, -1 means save all
   * \return Non-empty string if succeeded
   */
   virtual std::string SaveModelToString(int num_iterations) const = 0;
 
   /*!
   * \brief Restore from a serialized string
-  * \param model_str The string of model
+  * \param buffer The content of model
+  * \param len The length of buffer
   * \return true if succeeded
   */
-  virtual bool LoadModelFromString(const std::string& model_str) = 0;
+  virtual bool LoadModelFromString(const char* buffer, size_t len) = 0;
 
   /*!
   * \brief Calculate feature importances
@@ -237,8 +257,9 @@ public:
   /*!
   * \brief Initial work for the prediction
   * \param num_iteration number of used iteration
+  * \param is_pred_contrib
   */
-  virtual void InitPredict(int num_iteration) = 0;
+  virtual void InitPredict(int num_iteration, bool is_pred_contrib) = 0;
 
   /*!
   * \brief Name of submodel
@@ -256,18 +277,12 @@ public:
   /*!
   * \brief Create boosting object
   * \param type Type of boosting
+  * \param format Format of model
   * \param config config for boosting
   * \param filename name of model file, if existing will continue to train from this model
   * \return The boosting object
   */
   static Boosting* CreateBoosting(const std::string& type, const char* filename);
-
-  /*!
-  * \brief Create boosting object from model file
-  * \param filename name of model file
-  * \return The boosting object
-  */
-  static Boosting* CreateBoosting(const char* filename);
 
 };
 

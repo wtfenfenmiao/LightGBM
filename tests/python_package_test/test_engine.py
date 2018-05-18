@@ -12,6 +12,7 @@ from sklearn.datasets import (load_boston, load_breast_cancer, load_digits,
                               load_iris, load_svmlight_file)
 from sklearn.metrics import log_loss, mean_absolute_error, mean_squared_error
 from sklearn.model_selection import train_test_split, TimeSeriesSplit
+from scipy.sparse import csr_matrix
 
 try:
     import pandas as pd
@@ -318,12 +319,12 @@ class TestEngine(unittest.TestCase):
                         evals_result=evals_result)
 
         pred_parameter = {"pred_early_stop": True, "pred_early_stop_freq": 5, "pred_early_stop_margin": 1.5}
-        ret = multi_logloss(y_test, gbm.predict(X_test, pred_parameter=pred_parameter))
+        ret = multi_logloss(y_test, gbm.predict(X_test, **pred_parameter))
         self.assertLess(ret, 0.8)
         self.assertGreater(ret, 0.5)  # loss will be higher than when evaluating the full model
 
         pred_parameter = {"pred_early_stop": True, "pred_early_stop_freq": 5, "pred_early_stop_margin": 5.5}
-        ret = multi_logloss(y_test, gbm.predict(X_test, pred_parameter=pred_parameter))
+        ret = multi_logloss(y_test, gbm.predict(X_test, **pred_parameter))
         self.assertLess(ret, 0.2)
 
     def test_early_stopping(self):
@@ -344,7 +345,7 @@ class TestEngine(unittest.TestCase):
                         valid_names=valid_set_name,
                         verbose_eval=False,
                         early_stopping_rounds=5)
-        self.assertEqual(gbm.best_iteration, 0)
+        self.assertEqual(gbm.best_iteration, 10)
         self.assertIn(valid_set_name, gbm.best_score)
         self.assertIn('binary_logloss', gbm.best_score[valid_set_name])
         # early stopping occurs
@@ -416,22 +417,22 @@ class TestEngine(unittest.TestCase):
         lgb_train = lgb.Dataset(X_train, y_train)
         # shuffle = False, override metric in params
         params_with_metric = {'metric': 'l2', 'verbose': -1}
-        lgb.cv(params_with_metric, lgb_train, num_boost_round=10, nfold=3, shuffle=False,
+        lgb.cv(params_with_metric, lgb_train, num_boost_round=10, nfold=3, stratified=False, shuffle=False,
                metrics='l1', verbose_eval=False)
         # shuffle = True, callbacks
-        lgb.cv(params, lgb_train, num_boost_round=10, nfold=3, shuffle=True,
+        lgb.cv(params, lgb_train, num_boost_round=10, nfold=3, stratified=False, shuffle=True,
                metrics='l1', verbose_eval=False,
                callbacks=[lgb.reset_parameter(learning_rate=lambda i: 0.1 - 0.001 * i)])
         # self defined folds
         tss = TimeSeriesSplit(3)
         folds = tss.split(X_train)
-        lgb.cv(params_with_metric, lgb_train, num_boost_round=10, folds=folds, verbose_eval=False)
+        lgb.cv(params_with_metric, lgb_train, num_boost_round=10, folds=folds, stratified=False, verbose_eval=False)
         # lambdarank
         X_train, y_train = load_svmlight_file(os.path.join(os.path.dirname(os.path.realpath(__file__)), '../../examples/lambdarank/rank.train'))
         q_train = np.loadtxt(os.path.join(os.path.dirname(os.path.realpath(__file__)), '../../examples/lambdarank/rank.train.query'))
         params_lambdarank = {'objective': 'lambdarank', 'verbose': -1}
         lgb_train = lgb.Dataset(X_train, y_train, group=q_train)
-        lgb.cv(params_lambdarank, lgb_train, num_boost_round=10, nfold=3, metrics='l2', verbose_eval=False)
+        lgb.cv(params_lambdarank, lgb_train, num_boost_round=10, nfold=3, stratified=False, metrics='l2', verbose_eval=False)
 
     def test_feature_name(self):
         X, y = load_boston(True)
@@ -536,7 +537,6 @@ class TestEngine(unittest.TestCase):
             'objective': 'binary',
             'metric': 'binary_logloss',
             'verbose': -1,
-            'num_iteration': 50  # test num_iteration in dict here
         }
         lgb_train = lgb.Dataset(X_train, y_train)
         lgb_eval = lgb.Dataset(X_test, y_test, reference=lgb_train)
@@ -548,3 +548,93 @@ class TestEngine(unittest.TestCase):
                         evals_result=evals_result)
 
         self.assertLess(np.linalg.norm(gbm.predict(X_test, raw_score=True) - np.sum(gbm.predict(X_test, pred_contrib=True), axis=1)), 1e-4)
+
+    def test_sliced_data(self):
+        def train_and_get_predictions(features, labels):
+            dataset = lgb.Dataset(features, label=labels)
+            lgb_params = {
+                'application': 'binary',
+                'verbose': -1,
+                'min_data': 5,
+            }
+            lgbm_model = lgb.train(
+                params=lgb_params,
+                train_set=dataset,
+                num_boost_round=10,
+            )
+            predictions = lgbm_model.predict(features)
+            return predictions
+        num_samples = 100
+        features = np.random.rand(num_samples, 5)
+        positive_samples = int(num_samples * 0.25)
+        labels = np.append(
+            np.ones(positive_samples, dtype=np.float32),
+            np.zeros(num_samples - positive_samples, dtype=np.float32),
+        )
+        # test sliced labels
+        origin_pred = train_and_get_predictions(features, labels)
+        stacked_labels = np.column_stack((labels, np.ones(num_samples, dtype=np.float32)))
+        sliced_labels = stacked_labels[:, 0]
+        sliced_pred = train_and_get_predictions(features, sliced_labels)
+        np.testing.assert_almost_equal(origin_pred, sliced_pred)
+        # append some columns
+        stacked_features = np.column_stack((np.ones(num_samples, dtype=np.float32), features))
+        stacked_features = np.column_stack((np.ones(num_samples, dtype=np.float32), stacked_features))
+        stacked_features = np.column_stack((stacked_features, np.ones(num_samples, dtype=np.float32)))
+        stacked_features = np.column_stack((stacked_features, np.ones(num_samples, dtype=np.float32)))
+        # append some rows
+        stacked_features = np.concatenate((np.ones(9, dtype=np.float32).reshape((1, 9)), stacked_features), axis=0)
+        stacked_features = np.concatenate((np.ones(9, dtype=np.float32).reshape((1, 9)), stacked_features), axis=0)
+        stacked_features = np.concatenate((stacked_features, np.ones(9, dtype=np.float32).reshape((1, 9))), axis=0)
+        stacked_features = np.concatenate((stacked_features, np.ones(9, dtype=np.float32).reshape((1, 9))), axis=0)
+        # test sliced 2d matrix
+        sliced_features = stacked_features[2:102, 2: 7]
+        assert np.all(sliced_features == features)
+        sliced_pred = train_and_get_predictions(sliced_features, sliced_labels)
+        np.testing.assert_almost_equal(origin_pred, sliced_pred)
+        # test sliced CSR
+        stacked_csr = csr_matrix(stacked_features)
+        sliced_csr = stacked_csr[2:102, 2: 7]
+        assert np.all(sliced_csr == features)
+        sliced_pred = train_and_get_predictions(sliced_csr, sliced_labels)
+        np.testing.assert_almost_equal(origin_pred, sliced_pred)
+
+    def test_monotone_constraint(self):
+        def is_increasing(y):
+            return np.count_nonzero(np.diff(y) < 0.0) == 0
+
+        def is_decreasing(y):
+            return np.count_nonzero(np.diff(y) > 0.0) == 0
+
+        def is_correctly_constrained(learner):
+            n = 200
+            variable_x = np.linspace(0, 1, n).reshape((n, 1))
+            fixed_xs_values = np.linspace(0, 1, n)
+            for i in range(n):
+                fixed_x = fixed_xs_values[i] * np.ones((n, 1))
+                monotonically_increasing_x = np.column_stack((variable_x, fixed_x))
+                monotonically_increasing_y = learner.predict(monotonically_increasing_x)
+                monotonically_decreasing_x = np.column_stack((fixed_x, variable_x))
+                monotonically_decreasing_y = learner.predict(monotonically_decreasing_x)
+                if not (is_increasing(monotonically_increasing_y) and is_decreasing(monotonically_decreasing_y)):
+                    return False
+            return True
+
+        number_of_dpoints = 3000
+        x1_positively_correlated_with_y = np.random.random(size=number_of_dpoints)
+        x2_negatively_correlated_with_y = np.random.random(size=number_of_dpoints)
+        x = np.column_stack((x1_positively_correlated_with_y, x2_negatively_correlated_with_y))
+        zs = np.random.normal(loc=0.0, scale=0.01, size=number_of_dpoints)
+        y = (5 * x1_positively_correlated_with_y
+             + np.sin(10 * np.pi * x1_positively_correlated_with_y)
+             - 5 * x2_negatively_correlated_with_y
+             - np.cos(10 * np.pi * x2_negatively_correlated_with_y)
+             + zs)
+        trainset = lgb.Dataset(x, label=y)
+        params = {
+            'min_data': 20,
+            'num_leaves': 20,
+            'monotone_constraints': '1,-1'
+        }
+        constrained_model = lgb.train(params, trainset)
+        assert is_correctly_constrained(constrained_model)

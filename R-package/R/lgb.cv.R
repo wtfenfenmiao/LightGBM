@@ -16,10 +16,8 @@ CVBooster <- R6Class(
   )
 )
 
-#' Main CV logic for LightGBM
-#'
-#' Main CV logic for LightGBM
-#'
+#' @title Main CV logic for LightGBM
+#' @name lgb.cv
 #' @param params List of parameters
 #' @param data a \code{lgb.Dataset} object, used for CV
 #' @param nrounds number of CV rounds
@@ -107,6 +105,10 @@ lgb.cv <- function(params = list(),
   params <- lgb.check.eval(params, eval)
   fobj <- NULL
   feval <- NULL
+
+  if (nrounds <= 0) {
+    stop("nrounds should be greater than zero")
+  }
   
   # Check for objective (function or not)
   if (is.function(params$objective)) {
@@ -236,7 +238,7 @@ lgb.cv <- function(params = list(),
   if (!is.list(folds[[1]])) {
     bst_folds <- lapply(seq_along(folds), function(k) {
       dtest <- slice(data, folds[[k]])
-      dtrain <- slice(data, unlist(folds[-k]))
+      dtrain <- slice(data, seq_len(nrow(data))[-folds[[k]]])
       setinfo(dtrain, "weight", getinfo(data, "weight")[-folds[[k]]])
       setinfo(dtrain, "init_score", getinfo(data, "init_score")[-folds[[k]]])
       setinfo(dtest, "weight", getinfo(data, "weight")[folds[[k]]])

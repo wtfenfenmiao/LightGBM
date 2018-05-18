@@ -39,21 +39,28 @@ Core Parameters
 
    -  path of config file
 
--  ``task``, default=\ ``train``, type=enum, options=\ ``train``, ``prediction``
+   - **Note**: Only can be used in CLI version.
 
-   -  ``train`` for training
+-  ``task``, default=\ ``train``, type=enum, options=\ ``train``, ``predict``, ``convert_model``, ``refit``
 
-   -  ``prediction`` for prediction.
+   -  ``train``, alias=\ ``training``, for training
 
-   -  ``convert_model`` for converting model file into if-else format, see more information in `Convert model parameters <#convert-model-parameters>`__
+   -  ``predict``, alias=\ ``prediction``, ``test``, for prediction.
+
+   -  ``convert_model``, for converting model file into if-else format, see more information in `Convert model parameters <#convert-model-parameters>`__
+
+   -  ``refit``, alias=\ ``refit_tree``, refit existing models with new data.
+
+   - **Note**: Only can be used in CLI version.
 
 -  ``application``, default=\ ``regression``, type=enum,
-   options=\ ``regression``, ``regression_l2``, ``regression_l1``, ``huber``, ``fair``, ``poisson``, ``binary``, ``lambdarank``, ``multiclass``,
+   options=\ ``regression``, ``regression_l1``, ``huber``, ``fair``, ``poisson``, ``quantile``, ``mape``, ``gammma``, ``tweedie``,
+   ``binary``, ``multiclass``, ``multiclassova``, ``xentropy``, ``xentlambda``, ``lambdarank``,
    alias=\ ``objective``, ``app``
 
-   -  ``regression``, regression application
+   -  regression application
 
-      -  ``regression_l2``, L2 loss, alias=\ ``mean_squared_error``, ``mse``
+      -  ``regression_l2``, L2 loss, alias=\ ``regression``, ``mean_squared_error``, ``mse``, ``l2_root``, ``root_mean_squared_error``, ``rmse``
 
       -  ``regression_l1``, L1 loss, alias=\ ``mean_absolute_error``, ``mae``
 
@@ -63,15 +70,39 @@ Core Parameters
 
       -  ``poisson``, `Poisson regression`_
 
-   -  ``binary``, binary classification application
+      -  ``quantile``, `Quantile regression`_
+
+      -  ``mape``, `MAPE loss`_, alias=\ ``mean_absolute_percentage_error``
+
+      -  ``gamma``, Gamma regression with log-link. It might be useful, e.g., for modeling insurance claims severity, or for any target that might be `gamma-distributed`_
+
+      -  ``tweedie``, Tweedie regression with log-link. It might be useful, e.g., for modeling total loss in insurance, or for any target that might be `tweedie-distributed`_
+
+   -  ``binary``, binary `log loss`_ classification application
+
+   -  multi-class classification application
+
+      -  ``multiclass``, `softmax`_ objective function, alias=\ ``softmax``
+
+      -  ``multiclassova``, `One-vs-All`_ binary objective function, alias=\ ``multiclass_ova``, ``ova``, ``ovr``
+
+      -  ``num_class`` should be set as well
+
+   -  cross-entropy application
+
+      -  ``xentropy``, objective function for cross-entropy (with optional linear weights), alias=\ ``cross_entropy``
+
+      -  ``xentlambda``, alternative parameterization of cross-entropy, alias=\ ``cross_entropy_lambda``
+
+      -  the label is anything in interval [0, 1]
 
    -  ``lambdarank``, `lambdarank`_ application
 
       -  the label should be ``int`` type in lambdarank tasks, and larger number represent the higher relevance (e.g. 0:bad, 1:fair, 2:good, 3:perfect)
 
-      -  ``label_gain`` can be used to set the gain(weight) of ``int`` label
+      -  `label_gain <#objective-parameters>`__ can be used to set the gain(weight) of ``int`` label
 
-   -  ``multiclass``, multi-class classification application, ``num_class`` should be set as well
+      -  all values in ``label`` must be smaller than number of elements in ``label_gain``
 
 -  ``boosting``, default=\ ``gbdt``, type=enum,
    options=\ ``gbdt``, ``rf``, ``dart``, ``goss``,
@@ -96,9 +127,10 @@ Core Parameters
    -  support multi validation data, separate by ``,``
 
 -  ``num_iterations``, default=\ ``100``, type=int,
-   alias=\ ``num_iteration``, ``num_tree``, ``num_trees``, ``num_round``, ``num_rounds``
+   alias=\ ``num_iteration``, ``num_tree``, ``num_trees``, ``num_round``, ``num_rounds``, ``num_boost_round``, ``n_estimators``
 
    -  number of boosting iterations
+
    -  **Note**: for Python/R package, **this parameter is ignored**,
       use ``num_boost_round`` (Python) or ``nrounds`` (R) input arguments of ``train`` and ``cv`` methods instead
 
@@ -114,13 +146,15 @@ Core Parameters
 
    -  number of leaves in one tree
 
--  ``tree_learner``, default=\ ``serial``, type=enum, options=\ ``serial``, ``feature``, ``data``
+-  ``tree_learner``, default=\ ``serial``, type=enum, options=\ ``serial``, ``feature``, ``data``, ``voting``, alias=\ ``tree``
 
    -  ``serial``, single machine tree learner
 
-   -  ``feature``, feature parallel tree learner
+   -  ``feature``, alias=\ ``feature_parallel``, feature parallel tree learner
 
-   -  ``data``, data parallel tree learner
+   -  ``data``, alias=\ ``data_parallel``, data parallel tree learner
+
+   -  ``voting``, alias=\ ``voting_parallel``, voting parallel tree learner
 
    -  refer to `Parallel Learning Guide <./Parallel-Learning-Guide.rst>`__ to get more details
 
@@ -157,16 +191,16 @@ Learning Control Parameters
 
    -  ``< 0`` means no limit
 
--  ``min_data_in_leaf``, default=\ ``20``, type=int, alias=\ ``min_data_per_leaf`` , ``min_data``
+-  ``min_data_in_leaf``, default=\ ``20``, type=int, alias=\ ``min_data_per_leaf`` , ``min_data``, ``min_child_samples``
 
    -  minimal number of data in one leaf. Can be used to deal with over-fitting
 
 -  ``min_sum_hessian_in_leaf``, default=\ ``1e-3``, type=double,
-   alias=\ ``min_sum_hessian_per_leaf``, ``min_sum_hessian``, ``min_hessian``
+   alias=\ ``min_sum_hessian_per_leaf``, ``min_sum_hessian``, ``min_hessian``, ``min_child_weight``
 
    -  minimal sum hessian in one leaf. Like ``min_data_in_leaf``, it can be used to deal with over-fitting
 
--  ``feature_fraction``, default=\ ``1.0``, type=double, ``0.0 < feature_fraction < 1.0``, alias=\ ``sub_feature``
+-  ``feature_fraction``, default=\ ``1.0``, type=double, ``0.0 < feature_fraction <= 1.0``, alias=\ ``sub_feature``, ``colsample_bytree``
 
    -  LightGBM will randomly select part of features on each iteration if ``feature_fraction`` smaller than ``1.0``.
       For example, if set to ``0.8``, will select 80% features before training each tree
@@ -179,7 +213,7 @@ Learning Control Parameters
 
    -  random seed for ``feature_fraction``
 
--  ``bagging_fraction``, default=\ ``1.0``, type=double, ``0.0 < bagging_fraction < 1.0``, alias=\ ``sub_row``
+-  ``bagging_fraction``, default=\ ``1.0``, type=double, ``0.0 < bagging_fraction <= 1.0``, alias=\ ``sub_row``, ``subsample``
 
    -  like ``feature_fraction``, but this will randomly select part of data without resampling
 
@@ -189,13 +223,13 @@ Learning Control Parameters
 
    -  **Note**: To enable bagging, ``bagging_freq`` should be set to a non zero value as well
 
--  ``bagging_freq``, default=\ ``0``, type=int
+-  ``bagging_freq``, default=\ ``0``, type=int, alias=\ ``subsample_freq``
 
    -  frequency for bagging, ``0`` means disable bagging. ``k`` means will perform bagging at every ``k`` iteration
 
    -  **Note**: to enable bagging, ``bagging_fraction`` should be set as well
 
--  ``bagging_seed`` , default=\ ``3``, type=int
+-  ``bagging_seed`` , default=\ ``3``, type=int, alias=\ ``bagging_fraction_seed``
 
    -  random seed for bagging
 
@@ -203,23 +237,31 @@ Learning Control Parameters
 
    -  will stop training if one metric of one validation data doesn't improve in last ``early_stopping_round`` rounds
 
--  ``lambda_l1``, default=\ ``0``, type=double
+-  ``lambda_l1``, default=\ ``0``, type=double, alias=\ ``reg_alpha``
 
    -  L1 regularization
 
--  ``lambda_l2``, default=\ ``0``, type=double
+-  ``lambda_l2``, default=\ ``0``, type=double, alias=\ ``reg_lambda``
 
    -  L2 regularization
 
--  ``min_gain_to_split``, default=\ ``0``, type=double
+-  ``max_delta_step``, default=\ ``0``, type=double, alias=\ ``max_tree_output``, ``max_leaf_output``
+
+   -  Used to limit the max output of tree leaves
+
+   -  when <= 0, there is not constraint
+
+   -  the final max output of leaves is ``learning_rate*max_delta_step``
+
+-  ``min_split_gain``, default=\ ``0``, type=double, alias=\ ``min_gain_to_split``
 
    -  the minimal gain to perform split
 
--  ``drop_rate``, default=\ ``0.1``, type=double
+-  ``drop_rate``, default=\ ``0.1``, type=double, ``0.0 <= drop_rate <= 1.0``
 
    -  only used in ``dart``
 
--  ``skip_drop``, default=\ ``0.5``, type=double
+-  ``skip_drop``, default=\ ``0.5``, type=double, ``0.0 <= skip_drop <= 1.0``
 
    -  only used in ``dart``, probability of skipping drop
 
@@ -261,9 +303,9 @@ Learning Control Parameters
 
 -  ``cat_smooth``, default=\ ``10``, type=double
 
-   -  use for the categorical features
+   -  used for the categorical features
 
-   - this can reduce the effect of noises in categorical features, especially for categories with few data
+   -  this can reduce the effect of noises in categorical features, especially for categories with few data
 
 -  ``cat_l2``, default=\ ``10``, type=double
 
@@ -271,7 +313,21 @@ Learning Control Parameters
 
 -  ``max_cat_to_onehot``, default=\ ``4``, type=int
 
-   -  When number of categories of one feature smaller than or equal to ``max_cat_to_onehot``, will use one-vs-other split algorithm.
+   -  when number of categories of one feature smaller than or equal to ``max_cat_to_onehot``, one-vs-other split algorithm will be used
+
+-  ``top_k``, default=\ ``20``, type=int, alias=\ ``topk``
+
+   -  used in `Voting parallel <./Parallel-Learning-Guide.rst#choose-appropriate-parallel-algorithm>`__
+
+   -  set this to larger value for more accurate result, but it will slow down the training speed
+
+-  ``monotone_constraint``, default=\ ``None``, type=multi-int, alias=\ ``mc``
+
+   -  used for constraints of monotonic features
+
+   -  ``1`` means increasing, ``-1`` means decreasing, ``0`` means non-constraint
+
+   -  you need to specify all features in order. For example, ``mc=-1,0,1`` means the decreasing for 1st feature, non-constraint for 2nd feature and increasing for the 3rd feature
 
 IO Parameters
 -------------
@@ -309,13 +365,13 @@ IO Parameters
 
    -  file name of prediction result in ``prediction`` task
 
--  ``is_pre_partition``, default=\ ``false``, type=bool
+-  ``pre_partition``, default=\ ``false``, type=bool, alias=\ ``is_pre_partition``
 
    -  used for parallel learning (not include feature parallel)
 
    -  ``true`` if training data are pre-partitioned, and different machines use different partitions
 
--  ``is_sparse``, default=\ ``true``, type=bool, alias=\ ``is_enable_sparse``
+-  ``is_sparse``, default=\ ``true``, type=bool, alias=\ ``is_enable_sparse``, ``enable_sparse``
 
    -  used to enable/disable sparse optimization. Set to ``false`` to disable sparse optimization
 
@@ -380,6 +436,8 @@ IO Parameters
 
    -  add a prefix ``name:`` for column name, e.g. ``ignore_column=name:c1,c2,c3`` means c1, c2 and c3 will be ignored
 
+   -  **Note**: works only in case of loading data directly from file
+
    -  **Note**: index starts from ``0``. And it doesn't count the label column
 
 -  ``categorical_feature``, default=\ ``""``, type=string, alias=\ ``categorical_column``, ``cat_feature``, ``cat_column``
@@ -415,7 +473,7 @@ IO Parameters
    -  set to ``true`` to estimate `SHAP values`_, which represent how each feature contributs to each prediction.
       Produces number of features + 1 values where the last value is the expected value of the model output over the training data
 
--  ``bin_construct_sample_cnt``, default=\ ``200000``, type=int
+-  ``bin_construct_sample_cnt``, default=\ ``200000``, type=int, alias=\ ``subsample_for_bin``
 
    -  number of data that sampled to construct histogram bins
 
@@ -462,6 +520,16 @@ IO Parameters
 
    -  separate by ``,`` for multi-validation data
 
+-  ``forced_splits``, default=\ ``""``, type=string
+
+   -  path to a ``.json`` file that specifies splits to force at the top of every decision tree before best-first learning commences.
+
+   -  ``.json`` file can be arbitrarily nested, and each split contains ``feature``, ``threshold`` fields, as well as ``left`` and ``right`` 
+      fields representing subsplits. Categorical splits are forced in a one-hot fashion, with ``left`` representing the split containing
+      the feature value and ``right`` representing other values.
+
+   -  see `this file <https://github.com/Microsoft/LightGBM/tree/master/examples/binary_classification/forced_splits.json>`__ as an example.
+
 Objective Parameters
 --------------------
 
@@ -469,21 +537,17 @@ Objective Parameters
 
    -  parameter for sigmoid function. Will be used in ``binary`` classification and ``lambdarank``
 
--  ``huber_delta``, default=\ ``1.0``, type=double
+-  ``alpha``, default=\ ``0.9``, type=double
 
-   -  parameter for `Huber loss`_. Will be used in ``regression`` task
+   -  parameter for `Huber loss`_ and `Quantile regression`_. Will be used in ``regression`` task
 
 -  ``fair_c``, default=\ ``1.0``, type=double
 
    -  parameter for `Fair loss`_. Will be used in ``regression`` task
 
--  ``gaussian_eta``, default=\ ``1.0``, type=double
+-  ``poisson_max_delta_step``, default=\ ``0.7``, type=double
 
-   -  parameter to control the width of Gaussian function. Will be used in ``regression_l1`` and ``huber`` losses
-
--  ``poission_max_delta_step``, default=\ ``0.7``, type=double
-
-   -  parameter used to safeguard optimization
+   -  parameter for `Poisson regression`_ to safeguard optimization
 
 -  ``scale_pos_weight``, default=\ ``1.0``, type=double
 
@@ -495,7 +559,7 @@ Objective Parameters
 
    -  adjust initial score to the mean of labels for faster convergence
 
--  ``is_unbalance``, default=\ ``false``, type=bool
+-  ``is_unbalance``, default=\ ``false``, type=bool, alias=\ ``unbalanced_sets``
 
    -  used in ``binary`` classification
    
@@ -507,7 +571,7 @@ Objective Parameters
 
    -  will optimize `NDCG`_ at this position
 
--  ``label_gain``, default=\ ``0,1,3,7,15,31,63,...``, type=multi-double
+-  ``label_gain``, default=\ ``0,1,3,7,15,31,63,...,2^30-1``, type=multi-double
 
    -  used in ``lambdarank``
 
@@ -517,48 +581,85 @@ Objective Parameters
 
 -  ``num_class``, default=\ ``1``, type=int, alias=\ ``num_classes``
 
-   -  only used in ``multiclass`` classification
+   -  only used in multi-class classification
+
+-  ``reg_sqrt``, default=\ ``false``, type=bool
+
+   -  only used in ``regression``
+
+   -  will fit ``sqrt(label)`` instead and prediction result will be also automatically converted to ``pow2(prediction)``
+
+-  ``tweedie_variance_power``, default=\ ``1.5``, type=\ ``double``, range=\ ``[1,2)``
+
+   - only used in ``tweedie`` regression
+
+   - controls the variance of the tweedie distribution
+   
+   - set closer to 2 to shift towards a gamma distribution
+   
+   - set closer to 1 to shift towards a poisson distribution
 
 Metric Parameters
 -----------------
 
--  ``metric``, default={``l2`` for regression}, {``binary_logloss`` for binary classification}, {``ndcg`` for lambdarank}, type=multi-enum,
-   options=\ ``l1``, ``l2``, ``ndcg``, ``auc``, ``binary_logloss``, ``binary_error`` ...
+-  ``metric``, default=\ ``''``, type=multi-enum
 
-   -  ``l1``, absolute loss, alias=\ ``mean_absolute_error``, ``mae``
+   -  metric to be evaluated on the evaluation sets **in addition** to what is provided in the training arguments
 
-   -  ``l2``, square loss, alias=\ ``mean_squared_error``, ``mse``
+      -  ``''`` (empty string or not specific), metric corresponding to specified objective will be used
+         (this is possible only for pre-defined objective functions, otherwise no evaluation metric will be added)
 
-   -  ``l2_root``, root square loss, alias=\ ``root_mean_squared_error``, ``rmse``
+      -  ``'None'`` (string, **not** a ``None`` value), no metric registered, alias=\ ``na``
+   
+      -  ``l1``, absolute loss, alias=\ ``mean_absolute_error``, ``mae``, ``regression_l1``
+   
+      -  ``l2``, square loss, alias=\ ``mean_squared_error``, ``mse``, ``regression_l2``, ``regression``
+   
+      -  ``l2_root``, root square loss, alias=\ ``root_mean_squared_error``, ``rmse``
+   
+      -  ``quantile``, `Quantile regression`_
+      
+      -  ``mape``, `MAPE loss`_, alias=\ ``mean_absolute_percentage_error``
+   
+      -  ``huber``, `Huber loss`_
+   
+      -  ``fair``, `Fair loss`_
+   
+      -  ``poisson``, negative log-likelihood for `Poisson regression`_
+   
+      -  ``gamma``, negative log-likelihood for Gamma regression
+   
+      -  ``gamma_deviance``, residual deviance for Gamma regression
+   
+      -  ``tweedie``, negative log-likelihood for Tweedie regression
+   
+      -  ``ndcg``, `NDCG`_
+   
+      -  ``map``, `MAP`_, alias=\ ``mean_average_precision``
+   
+      -  ``auc``, `AUC`_
+   
+      -  ``binary_logloss``, `log loss`_, alias=\ ``binary``
+   
+      -  ``binary_error``, for one sample: ``0`` for correct classification, ``1`` for error classification
+   
+      -  ``multi_logloss``, log loss for mulit-class classification, alias=\ ``multiclass``, ``softmax``, ``multiclassova``, ``multiclass_ova``, ``ova``, ``ovr``
+   
+      -  ``multi_error``, error rate for mulit-class classification
+   
+      -  ``xentropy``, cross-entropy (with optional linear weights), alias=\ ``cross_entropy``
+   
+      -  ``xentlambda``, "intensity-weighted" cross-entropy, alias=\ ``cross_entropy_lambda``
+   
+      -  ``kldiv``, `Kullback-Leibler divergence`_, alias=\ ``kullback_leibler``
 
-   -  ``huber``, `Huber loss`_
+   -  support multiple metrics, separated by ``,``
 
-   -  ``fair``, `Fair loss`_
-
-   -  ``poisson``, `Poisson regression`_
-
-   -  ``ndcg``, `NDCG`_
-
-   -  ``map``, `MAP`_
-
-   -  ``auc``, `AUC`_
-
-   -  ``binary_logloss``, `log loss`_
-
-   -  ``binary_error``.
-      For one sample: ``0`` for correct classification, ``1`` for error classification
-
-   -  ``multi_logloss``, log loss for mulit-class classification
-
-   -  ``multi_error``, error rate for mulit-class classification
-
-   -  support multi metrics, separated by ``,``
-
--  ``metric_freq``, default=\ ``1``, type=int
+-  ``metric_freq``, default=\ ``1``, type=int, alias=\ ``output_freq``
 
    -  frequency for metric output
 
--  ``is_training_metric``, default=\ ``false``, type=bool
+-  ``train_metric``, default=\ ``false``, type=bool, alias=\ ``training_metric``, ``is_training_metric``
 
    -  set this to ``true`` if you need to output metric result of training
 
@@ -587,7 +688,7 @@ Following parameters are used for parallel learning, and only used for base (soc
 
    -  socket time-out in minutes
 
--  ``machine_list_file``, default=\ ``""``, type=string
+-  ``machine_list_file``, default=\ ``""``, type=string, alias=\ ``mlist``
 
    -  file that lists machines for this parallel learning application
 
@@ -650,7 +751,7 @@ In this case LightGBM will auto load initial score file if it exists.
 Weight Data
 ~~~~~~~~~~~
 
-LightGBM supporta weighted training. It uses an additional file to store weight data, like the following:
+LightGBM supports weighted training. It uses an additional file to store weight data, like the following:
 
 ::
 
@@ -671,7 +772,7 @@ Query Data
 ~~~~~~~~~~
 
 For LambdaRank learning, it needs query information for training data.
-LightGBM use an additional file to store query data, like the following:
+LightGBM uses an additional file to store query data, like the following:
 
 ::
 
@@ -694,6 +795,10 @@ You can specific query/group id in data file now. Please refer to parameter ``gr
 
 .. _Huber loss: https://en.wikipedia.org/wiki/Huber_loss
 
+.. _Quantile regression: https://en.wikipedia.org/wiki/Quantile_regression
+
+.. _MAPE loss: https://en.wikipedia.org/wiki/Mean_absolute_percentage_error
+
 .. _Fair loss: https://www.kaggle.com/c/allstate-claims-severity/discussion/24520
 
 .. _Poisson regression: https://en.wikipedia.org/wiki/Poisson_regression
@@ -708,8 +813,18 @@ You can specific query/group id in data file now. Please refer to parameter ``gr
 
 .. _NDCG: https://en.wikipedia.org/wiki/Discounted_cumulative_gain#Normalized_DCG
 
-.. _MAP: https://en.wikipedia.org/wiki/Information_retrieval#Mean_average_precision
+.. _MAP: https://makarandtapaswi.wordpress.com/2012/07/02/intuition-behind-average-precision-and-map/
 
 .. _AUC: https://en.wikipedia.org/wiki/Receiver_operating_characteristic#Area_under_the_curve
 
-.. _log loss: https://www.kaggle.com/wiki/LogLoss
+.. _log loss: https://en.wikipedia.org/wiki/Cross_entropy
+
+.. _softmax: https://en.wikipedia.org/wiki/Softmax_function
+
+.. _One-vs-All: https://en.wikipedia.org/wiki/Multiclass_classification#One-vs.-rest
+
+.. _Kullback-Leibler divergence: https://en.wikipedia.org/wiki/Kullback%E2%80%93Leibler_divergence
+
+.. _gamma-distributed: https://en.wikipedia.org/wiki/Gamma_distribution#Applications
+
+.. _tweedie-distributed: https://en.wikipedia.org/wiki/Tweedie_distribution#Applications

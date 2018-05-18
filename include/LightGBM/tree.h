@@ -7,10 +7,10 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <map>
 
 namespace LightGBM {
 
-#define kMaxTreeOutput (100)
 #define kCategoricalMask (1)
 #define kDefaultLeftMask (2)
 
@@ -28,8 +28,9 @@ public:
   /*!
   * \brief Construtor, from a string
   * \param str Model string
+  * \param used_len used count of str
   */
-  explicit Tree(const std::string& str);
+  Tree(const char* str, size_t* used_len);
 
   ~Tree();
 
@@ -51,7 +52,7 @@ public:
   */
   int Split(int leaf, int feature, int real_feature, uint32_t threshold_bin,
             double threshold_double, double left_value, double right_value,
-            data_size_t left_cnt, data_size_t right_cnt, double gain, MissingType missing_type, bool default_left);
+            int left_cnt, int right_cnt, float gain, MissingType missing_type, bool default_left);
 
   /*!
   * \brief Performing a split on tree leaves, with categorical feature
@@ -71,7 +72,7 @@ public:
   */
   int SplitCategorical(int leaf, int feature, int real_feature, const uint32_t* threshold_bin, int num_threshold_bin,
                        const uint32_t* threshold, int num_threshold, double left_value, double right_value,
-                       data_size_t left_cnt, data_size_t right_cnt, double gain, MissingType missing_type);
+                       int left_cnt, int right_cnt, float gain, MissingType missing_type);
 
   /*! \brief Get the output of one leaf */
   inline double LeafOutput(int leaf) const { return leaf_value_[leaf]; }
@@ -108,8 +109,11 @@ public:
   * \return Prediction result
   */
   inline double Predict(const double* feature_values) const;
+  inline double PredictByMap(const std::unordered_map<int, double>& feature_values) const;
 
   inline int PredictLeafIndex(const double* feature_values) const;
+  inline int PredictLeafIndexByMap(const std::unordered_map<int, double>& feature_values) const;
+
 
   inline void PredictContrib(const double* feature_values, int num_features, double* output);
 
@@ -136,9 +140,12 @@ public:
     #pragma omp parallel for schedule(static, 1024) if (num_leaves_ >= 2048)
     for (int i = 0; i < num_leaves_; ++i) {
       leaf_value_[i] *= rate;
-      if (leaf_value_[i] > kMaxTreeOutput) { leaf_value_[i] = kMaxTreeOutput; } else if (leaf_value_[i] < -kMaxTreeOutput) { leaf_value_[i] = -kMaxTreeOutput; }
     }
     shrinkage_ *= rate;
+  }
+
+  inline double shrinkage() const {
+    return shrinkage_;
   }
 
   inline void AddBias(double val) {
@@ -166,7 +173,7 @@ public:
   std::string ToIfElse(int index, bool is_predict_leaf_index) const;
 
   inline static bool IsZero(double fval) {
-    if (fval > -kZeroAsMissingValueRange && fval <= kZeroAsMissingValueRange) {
+    if (fval > -kZeroThreshold && fval <= kZeroThreshold) {
       return true;
     } else {
       return false;
@@ -193,6 +200,8 @@ public:
     (*decision_type) &= 3;
     (*decision_type) |= (input << 2);
   }
+
+  void RecomputeMaxDepth();
 
 private:
 
@@ -285,13 +294,14 @@ private:
   }
 
   inline void Split(int leaf, int feature, int real_feature,
-                    double left_value, double right_value, data_size_t left_cnt, data_size_t right_cnt, double gain);
+                    double left_value, double right_value, int left_cnt, int right_cnt, float gain);
   /*!
   * \brief Find leaf index of which record belongs by features
   * \param feature_values Feature value of this record
   * \return Leaf index
   */
   inline int GetLeaf(const double* feature_values) const;
+  inline int GetLeafByMap(const std::unordered_map<int, double>& feature_values) const;
 
   /*! \brief Serialize one node to json*/
   std::string NodeToJSON(int index) const;
@@ -299,9 +309,9 @@ private:
   /*! \brief Serialize one node to if-else statement*/
   std::string NodeToIfElse(int index, bool is_predict_leaf_index) const;
 
-  double ExpectedValue() const;
+  std::string NodeToIfElseByMap(int index, bool is_predict_leaf_index) const;
 
-  int MaxDepth();
+  double ExpectedValue() const;
 
   /*! \brief This is used fill in leaf_depth_ after reloading a model*/
   inline void RecomputeLeafDepths(int node = 0, int depth = 0);
@@ -363,25 +373,26 @@ private:
   /*! \brief Store the information for categorical feature handle and mising value handle. */
   std::vector<int8_t> decision_type_;
   /*! \brief A non-leaf node's split gain */
-  std::vector<double> split_gain_;
+  std::vector<float> split_gain_;
   // used for leaf node
   /*! \brief The parent of leaf */
   std::vector<int> leaf_parent_;
   /*! \brief Output of leaves */
   std::vector<double> leaf_value_;
   /*! \brief DataCount of leaves */
-  std::vector<data_size_t> leaf_count_;
+  std::vector<int> leaf_count_;
   /*! \brief Output of non-leaf nodes */
   std::vector<double> internal_value_;
   /*! \brief DataCount of non-leaf nodes */
-  std::vector<data_size_t> internal_count_;
+  std::vector<int> internal_count_;
   /*! \brief Depth for leaves */
   std::vector<int> leaf_depth_;
   double shrinkage_;
+  int max_depth_;
 };
 
 inline void Tree::Split(int leaf, int feature, int real_feature,
-                        double left_value, double right_value, data_size_t left_cnt, data_size_t right_cnt, double gain) {
+                        double left_value, double right_value, int left_cnt, int right_cnt, float gain) {
   int new_node_idx = num_leaves_ - 1;
   // update parent info
   int parent = leaf_parent_[leaf];
@@ -425,9 +436,27 @@ inline double Tree::Predict(const double* feature_values) const {
   }
 }
 
+inline double Tree::PredictByMap(const std::unordered_map<int, double>& feature_values) const {
+  if (num_leaves_ > 1) {
+    int leaf = GetLeafByMap(feature_values);
+    return LeafOutput(leaf);
+  } else {
+    return leaf_value_[0];
+  }
+}
+
 inline int Tree::PredictLeafIndex(const double* feature_values) const {
   if (num_leaves_ > 1) {
     int leaf = GetLeaf(feature_values);
+    return leaf;
+  } else {
+    return 0;
+  }
+}
+
+inline int Tree::PredictLeafIndexByMap(const std::unordered_map<int, double>& feature_values) const {
+  if (num_leaves_ > 1) {
+    int leaf = GetLeafByMap(feature_values);
     return leaf;
   } else {
     return 0;
@@ -438,10 +467,10 @@ inline void Tree::PredictContrib(const double* feature_values, int num_features,
   output[num_features] += ExpectedValue();
   // Run the recursion with preallocated space for the unique path data
   if (num_leaves_ > 1) {
-    const int max_path_len = MaxDepth()+1;
-    PathElement *unique_path_data = new PathElement[(max_path_len*(max_path_len+1))/2];
-    TreeSHAP(feature_values, output, 0, 0, unique_path_data, 1, 1, -1);
-    delete[] unique_path_data;
+    CHECK(max_depth_ >= 0);
+    const int max_path_len = max_depth_ + 1;
+    std::vector<PathElement> unique_path_data(max_path_len*(max_path_len + 1) / 2);
+    TreeSHAP(feature_values, output, 0, 0, unique_path_data.data(), 1, 1, -1);
   }
 }
 
@@ -450,8 +479,8 @@ inline void Tree::RecomputeLeafDepths(int node, int depth) {
   if (node < 0) {
     leaf_depth_[~node] = depth;
   } else {
-    RecomputeLeafDepths(left_child_[node], depth+1);
-    RecomputeLeafDepths(right_child_[node], depth+1);
+    RecomputeLeafDepths(left_child_[node], depth + 1);
+    RecomputeLeafDepths(right_child_[node], depth + 1);
   }
 }
 
@@ -468,6 +497,21 @@ inline int Tree::GetLeaf(const double* feature_values) const {
   }
   return ~node;
 }
+
+inline int Tree::GetLeafByMap(const std::unordered_map<int, double>& feature_values) const {
+  int node = 0;
+  if (num_cat_ > 0) {
+    while (node >= 0) {
+      node = Decision(feature_values.count(split_feature_[node]) > 0 ? feature_values.at(split_feature_[node]) : 0.0f, node);
+    }
+  } else {
+    while (node >= 0) {
+      node = NumericalDecision(feature_values.count(split_feature_[node]) > 0 ? feature_values.at(split_feature_[node]) : 0.0f, node);
+    }
+  }
+  return ~node;
+}
+
 
 }  // namespace LightGBM
 

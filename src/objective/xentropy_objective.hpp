@@ -52,18 +52,18 @@ public:
     weights_ = metadata.weights();
 
     CHECK_NOTNULL(label_);
-    Common::CheckElementsIntervalClosed(label_, 0.0f, 1.0f, num_data_, GetName());
+    Common::CheckElementsIntervalClosed<label_t>(label_, 0.0f, 1.0f, num_data_, GetName());
     Log::Info("[%s:%s]: (objective) labels passed interval [0, 1] check",  GetName(), __func__);
 
     if (weights_ != nullptr) {
-      float minw;
+      label_t minw;
       double sumw;
-      Common::ObtainMinMaxSum(weights_, num_data_, &minw, (float*)nullptr, &sumw);
+      Common::ObtainMinMaxSum(weights_, num_data_, &minw, (label_t*)nullptr, &sumw);
       if (minw < 0.0f) {
-        Log::Fatal("[%s]: at least one weight is negative.", GetName());
+        Log::Fatal("[%s]: at least one weight is negative", GetName());
       }
       if (sumw == 0.0f) {
-        Log::Fatal("[%s]: sum of weights is zero.", GetName());
+        Log::Fatal("[%s]: sum of weights is zero", GetName());
       }
     }
 
@@ -104,38 +104,36 @@ public:
     return str_buf.str();
   }
 
-  // allow boost from average option
-  bool BoostFromAverage() const override { return true; }
-
   // implement custom average to boost from (if enabled among options)
-  bool GetCustomAverage(double *initscore) const override {
-    if (initscore == nullptr) return false;
+  double BoostFromScore() const override {
     double suml = 0.0f;
     double sumw = 0.0f;
     if (weights_ != nullptr) {
+      #pragma omp parallel for schedule(static) reduction(+:suml,sumw)
       for (data_size_t i = 0; i < num_data_; ++i) {
         suml += label_[i] * weights_[i];
         sumw += weights_[i];
       }
     } else {
       sumw = static_cast<double>(num_data_);
+      #pragma omp parallel for schedule(static) reduction(+:suml)
       for (data_size_t i = 0; i < num_data_; ++i) {
         suml += label_[i];
       }
     }
     double pavg = suml / sumw;
-    *initscore = std::log(pavg / (1.0f - pavg));
-    Log::Info("[%s:%s]: pavg=%f -> initscore=%f",  GetName(), __func__, pavg, *initscore);
-    return true;
+    double initscore = std::log(pavg / (1.0f - pavg));
+    Log::Info("[%s:%s]: pavg = %f -> initscore = %f",  GetName(), __func__, pavg, initscore);
+    return initscore;
   }
 
 private:
   /*! \brief Number of data points */
   data_size_t num_data_;
   /*! \brief Pointer for label */
-  const float* label_;
+  const label_t* label_;
   /*! \brief Weights for data */
-  const float* weights_;
+  const label_t* weights_;
 };
 
 /*!
@@ -158,14 +156,14 @@ public:
     weights_ = metadata.weights();
 
     CHECK_NOTNULL(label_);
-    Common::CheckElementsIntervalClosed(label_, 0.0f, 1.0f, num_data_, GetName());
+    Common::CheckElementsIntervalClosed<label_t>(label_, 0.0f, 1.0f, num_data_, GetName());
     Log::Info("[%s:%s]: (objective) labels passed interval [0, 1] check",  GetName(), __func__);
 
     if (weights_ != nullptr) {
 
-      Common::ObtainMinMaxSum(weights_, num_data_, &min_weight_, &max_weight_, (float*)nullptr);
+      Common::ObtainMinMaxSum(weights_, num_data_, &min_weight_, &max_weight_, (label_t*)nullptr);
       if (min_weight_ <= 0.0f) {
-        Log::Fatal("[%s]: at least one weight is non-positive.", GetName());
+        Log::Fatal("[%s]: at least one weight is non-positive", GetName());
       }
 
       // Issue an info statement about this ratio
@@ -232,35 +230,39 @@ public:
     return str_buf.str();
   }
 
-  bool BoostFromAverage() const override { return true; }
-
-  bool GetCustomAverage(double *initscore) const override {
-    if (initscore == nullptr) return false;
-    double sumy = 0.0f;
-    for (data_size_t i = 0; i < num_data_; ++i) sumy += label_[i];
+  double BoostFromScore() const override {
+    double suml = 0.0f;
     double sumw = 0.0f;
     if (weights_ != nullptr) {
-      for (data_size_t i = 0; i < num_data_; ++i) sumw += weights_[i];
+      #pragma omp parallel for schedule(static) reduction(+:suml,sumw)
+      for (data_size_t i = 0; i < num_data_; ++i) {
+        suml += label_[i] * weights_[i];
+        sumw += weights_[i];
+      }
     } else {
       sumw = static_cast<double>(num_data_);
+      #pragma omp parallel for schedule(static) reduction(+:suml)
+      for (data_size_t i = 0; i < num_data_; ++i) {
+        suml += label_[i];
+      }
     }
-    double havg = sumy / sumw;
-    *initscore = std::log(std::exp(havg) - 1.0f);
-    Log::Info("[%s:%s]: havg=%f -> initscore=%f",  GetName(), __func__, havg, *initscore);
-    return true;
+    double havg = suml / sumw;
+    double initscore = std::log(std::exp(havg) - 1.0f);
+    Log::Info("[%s:%s]: havg = %f -> initscore = %f",  GetName(), __func__, havg, initscore);
+    return initscore;
   }
 
 private:
   /*! \brief Number of data points */
   data_size_t num_data_;
   /*! \brief Pointer for label */
-  const float* label_;
+  const label_t* label_;
   /*! \brief Weights for data */
-  const float* weights_;
+  const label_t* weights_;
   /*! \brief Minimum weight found during init */
-  float min_weight_;
+  label_t min_weight_;
   /*! \brief Maximum weight found during init */
-  float max_weight_;
+  label_t max_weight_;
 };
 
 }  // end namespace LightGBM

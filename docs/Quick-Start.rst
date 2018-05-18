@@ -59,38 +59,64 @@ Some important parameters:
 
   - path to config file
 
-- ``task``, default=\ ``train``, type=enum, options=\ ``train``, ``prediction``
+-  ``task``, default=\ ``train``, type=enum, options=\ ``train``, ``predict``, ``convert_model``
 
-  - ``train`` for training
+   -  ``train``, alias=\ ``training``, for training
 
-  - ``prediction`` for prediction
+   -  ``predict``, alias=\ ``prediction``, ``test``, for prediction.
 
-- ``application``, default=\ ``regression``, type=enum,
-  options=\ ``regression``, ``regression_l2``, ``regression_l1``, ``huber``, ``fair``, ``poisson``, ``binary``, ``lambdarank``, ``multiclass``,
-  alias=\ ``objective``, ``app``
+   -  ``convert_model``, for converting model file into if-else format, see more information in `Convert model parameters <./Parameters.rst#convert-model-parameters>`__
 
-  - ``regression``, regression application
+-  ``application``, default=\ ``regression``, type=enum,
+   options=\ ``regression``, ``regression_l1``, ``huber``, ``fair``, ``poisson``, ``quantile``, ``mape``,
+   ``binary``, ``multiclass``, ``multiclassova``, ``xentropy``, ``xentlambda``, ``lambdarank``, ``gammma``, ``tweedie``,
+   alias=\ ``objective``, ``app``
 
-    - ``regression_l2``, L2 loss, alias=\ ``mean_squared_error``, ``mse``
+   -  regression application
 
-    - ``regression_l1``, L1 loss, alias=\ ``mean_absolute_error``, ``mae``
+      -  ``regression_l2``, L2 loss, alias=\ ``regression``, ``mean_squared_error``, ``mse``, ``l2_root``, ``root_mean_squared_error``, ``rmse``
 
-    - ``huber``, `Huber loss`_
+      -  ``regression_l1``, L1 loss, alias=\ ``mean_absolute_error``, ``mae``
 
-    - ``fair``, `Fair loss`_
+      -  ``huber``, `Huber loss`_
 
-    - ``poisson``, `Poisson regression`_
+      -  ``fair``, `Fair loss`_
 
-  - ``binary``, binary classification application
+      -  ``poisson``, `Poisson regression`_
 
-  - ``lambdarank``, `lambdarank`_ application
+      -  ``quantile``, `Quantile regression`_
 
-    - the label should be ``int`` type in lambdarank tasks,
-      and larger number represent the higher relevance (e.g. 0:bad, 1:fair, 2:good, 3:perfect)
+      -  ``mape``, `MAPE loss`_, alias=\ ``mean_absolute_percentage_error``
 
-    - ``label_gain`` can be used to set the gain(weight) of ``int`` label.
+      -  ``gamma``, gamma regression with log-link. It might be useful, e.g., for modeling insurance claims severity, or for any target that might be `gamma-distributed`_
 
-  - ``multiclass``, multi-class classification application, ``num_class`` should be set as well
+      -  ``tweedie``, tweedie regression with log-link. It might be useful, e.g., for modeling total loss in insurance, or for any target that might be `tweedie-distributed`_.
+
+   -  ``binary``, binary `log loss`_ classification application
+
+   -  multi-class classification application
+
+      -  ``multiclass``, `softmax`_ objective function, alias=\ ``softmax``
+
+      -  ``multiclassova``, `One-vs-All`_ binary objective function, alias=\ ``multiclass_ova``, ``ova``, ``ovr``
+
+      -  ``num_class`` should be set as well
+
+   -  cross-entropy application
+
+      -  ``xentropy``, objective function for cross-entropy (with optional linear weights), alias=\ ``cross_entropy``
+
+      -  ``xentlambda``, alternative parameterization of cross-entropy, alias=\ ``cross_entropy_lambda``
+
+      -  the label is anything in interval [0, 1]
+
+   -  ``lambdarank``, `lambdarank`_ application
+
+      -  the label should be ``int`` type in lambdarank tasks, and larger number represent the higher relevance (e.g. 0:bad, 1:fair, 2:good, 3:perfect)
+
+      -  ``label_gain`` can be used to set the gain(weight) of ``int`` label
+
+      -  all values in ``label`` must be smaller than number of elements in ``label_gain``
 
 - ``boosting``, default=\ ``gbdt``, type=enum,
   options=\ ``gbdt``, ``rf``, ``dart``, ``goss``,
@@ -115,7 +141,7 @@ Some important parameters:
   - support multi validation data, separate by ``,``
 
 - ``num_iterations``, default=\ ``100``, type=int,
-  alias=\ ``num_iteration``, ``num_tree``, ``num_trees``, ``num_round``, ``num_rounds``
+  alias=\ ``num_iteration``, ``num_tree``, ``num_trees``, ``num_round``, ``num_rounds``, ``num_boost_round``
 
   - number of boosting iterations/trees
 
@@ -127,15 +153,17 @@ Some important parameters:
 
   - number of leaves in one tree
 
-- ``tree_learner``, default=\ ``serial``, type=enum, options=\ ``serial``, ``feature``, ``data``
+-  ``tree_learner``, default=\ ``serial``, type=enum, options=\ ``serial``, ``feature``, ``data``, ``voting``, alias=\ ``tree``
 
-  - ``serial``, single machine tree learner
+   -  ``serial``, single machine tree learner
 
-  - ``feature``, feature parallel tree learner
+   -  ``feature``, alias=\ ``feature_parallel``, feature parallel tree learner
 
-  - ``data``, data parallel tree learner
+   -  ``data``, alias=\ ``data_parallel``, data parallel tree learner
 
-  - refer to `Parallel Learning Guide <./Parallel-Learning-Guide.rst>`__ to get more details
+   -  ``voting``, alias=\ ``voting_parallel``, voting parallel tree learner
+
+   -  refer to `Parallel Learning Guide <./Parallel-Learning-Guide.rst>`__ to get more details
 
 - ``num_threads``, default=\ ``OpenMP_default``, type=int, alias=\ ``num_thread``, ``nthread``
 
@@ -154,14 +182,14 @@ Some important parameters:
 
   - ``< 0`` means no limit
 
-- ``min_data_in_leaf``, default=\ ``20``, type=int, alias=\ ``min_data_per_leaf`` , ``min_data``
+- ``min_data_in_leaf``, default=\ ``20``, type=int, alias=\ ``min_data_per_leaf`` , ``min_data``, ``min_child_samples``
 
   - minimal number of data in one leaf. Can use this to deal with over-fitting
 
 - ``min_sum_hessian_in_leaf``, default=\ ``1e-3``, type=double,
-  alias=\ ``min_sum_hessian_per_leaf``, ``min_sum_hessian``, ``min_hessian``
+  alias=\ ``min_sum_hessian_per_leaf``, ``min_sum_hessian``, ``min_hessian``, ``min_child_weight``
 
-  - minimal sum hessian in one leaf. Like ``min_data_in_leaf``, can be used to deal with over-fitting
+  - minimal sum hessian in one leaf. Like ``min_data_in_leaf``, it can be used to deal with over-fitting
 
 For all parameters, please refer to `Parameters <./Parameters.rst>`__.
 
@@ -212,8 +240,22 @@ Examples
 
 .. _Poisson regression: https://en.wikipedia.org/wiki/Poisson_regression
 
+.. _Quantile regression: https://en.wikipedia.org/wiki/Quantile_regression
+
+.. _MAPE loss: https://en.wikipedia.org/wiki/Mean_absolute_percentage_error
+
+.. _log loss: https://en.wikipedia.org/wiki/Cross_entropy
+
+.. _softmax: https://en.wikipedia.org/wiki/Softmax_function
+
+.. _One-vs-All: https://en.wikipedia.org/wiki/Multiclass_classification#One-vs.-rest
+
 .. _lambdarank: https://papers.nips.cc/paper/2971-learning-to-rank-with-nonsmooth-cost-functions.pdf
 
 .. _Dropouts meet Multiple Additive Regression Trees: https://arxiv.org/abs/1505.01866
 
 .. _hyper-threading: https://en.wikipedia.org/wiki/Hyper-threading
+
+.. _gamma-distributed: https://en.wikipedia.org/wiki/Gamma_distribution#Applications
+
+.. _tweedie-distributed: https://en.wikipedia.org/wiki/Tweedie_distribution#Applications

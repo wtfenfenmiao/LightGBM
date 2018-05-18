@@ -110,8 +110,8 @@ void Linkers::ParseMachineList(const std::string& machines, const std::string& f
     client_ports_.push_back(atoi(str_after_split[1].c_str()));
   }
   if (client_ips_.empty()) {
-    Log::Fatal("Cannot find any ip and port. \
-                Please check machine_list_filename or machines parameter.");
+    Log::Fatal("Cannot find any ip and port.\n"
+               "Please check machine_list_filename or machines parameter");
   }
   if (client_ips_.size() != static_cast<size_t>(num_machines_)) {
     Log::Warning("World size is larger than the machine_list size, change world size to %d", client_ips_.size());
@@ -163,22 +163,11 @@ void Linkers::ListenThread(int incoming_cnt) {
 void Linkers::Construct() {
   // save ranks that need to connect with
   std::unordered_map<int, int> need_connect;
-  if (recursive_halving_map_.need_pairwise) {
-    for (int i = 0; i < num_machines_; ++i) {
-      if (i != rank_) {
-        need_connect[i] = 1;
-      }
-    }
-  } else {
-    for (int i = 0; i < bruck_map_.k; ++i) {
-      need_connect[bruck_map_.out_ranks[i]] = 1;
-      need_connect[bruck_map_.in_ranks[i]] = 1;
-    }
-    for (int i = 0; i < recursive_halving_map_.k; ++i) {
-      need_connect[recursive_halving_map_.ranks[i]] = 1;
+  for (int i = 0; i < num_machines_; ++i) {
+    if (i != rank_) {
+      need_connect[i] = 1;
     }
   }
-
   int need_connect_cnt = 0;
   int incoming_cnt = 0;
   for (auto it = need_connect.begin(); it != need_connect.end(); ++it) {

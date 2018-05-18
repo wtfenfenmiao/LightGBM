@@ -195,6 +195,18 @@
     <ClInclude Include="..\src\boosting\rf.hpp">
       <Filter>src\boosting</Filter>
     </ClInclude>
+    <ClInclude Include="..\src\objective\xentropy_objective.hpp">
+      <Filter>src\objective</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\metric\xentropy_metric.hpp">
+      <Filter>src\metric</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\LightGBM\utils\file_io.h">
+      <Filter>include\LightGBM\utils</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\LightGBM\json11.hpp">
+      <Filter>include\LightGBM\utils</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\src\application\application.cpp">
@@ -278,8 +290,14 @@
     <ClCompile Include="..\src\lightgbm_R.cpp">
       <Filter>src</Filter>
     </ClCompile>
-    <ClCompile Include="..\src\boosting\gbdt_model.cpp">
+    <ClCompile Include="..\src\boosting\gbdt_model_text.cpp">
       <Filter>src\boosting</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\io\file_io.cpp">
+      <Filter>src\io</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\io\json11.cpp">
+      <Filter>src\io</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>

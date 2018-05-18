@@ -82,9 +82,9 @@ public:
   void CheckOrPartition(data_size_t num_all_data,
                         const std::vector<data_size_t>& used_data_indices);
 
-  void SetLabel(const float* label, data_size_t len);
+  void SetLabel(const label_t* label, data_size_t len);
 
-  void SetWeights(const float* weights, data_size_t len);
+  void SetWeights(const label_t* weights, data_size_t len);
 
   void SetQuery(const data_size_t* query, data_size_t len);
 
@@ -99,7 +99,7 @@ public:
   * \brief Save binary data to file
   * \param file File want to write
   */
-  void SaveBinaryToFile(FILE* file) const;
+  void SaveBinaryToFile(const VirtualFileWriter* writer) const;
 
   /*!
   * \brief Get sizes in byte of this object
@@ -110,14 +110,14 @@ public:
   * \brief Get pointer of label
   * \return Pointer of label
   */
-  inline const float* label() const { return label_.data(); }
+  inline const label_t* label() const { return label_.data(); }
 
   /*!
   * \brief Set label for one record
   * \param idx Index of this record
   * \param value Label value of this record
   */
-  inline void SetLabelAt(data_size_t idx, float value)
+  inline void SetLabelAt(data_size_t idx, label_t value)
   {
     label_[idx] = value;
   }
@@ -127,7 +127,7 @@ public:
   * \param idx Index of this record
   * \param value Weight value of this record
   */
-  inline void SetWeightAt(data_size_t idx, float value)
+  inline void SetWeightAt(data_size_t idx, label_t value)
   {
     weights_[idx] = value;
   }
@@ -146,7 +146,7 @@ public:
   * \brief Get weights, if not exists, will return nullptr
   * \return Pointer of weights
   */
-  inline const float* weights() const {
+  inline const label_t* weights() const {
     if (!weights_.empty()) {
       return weights_.data();
     } else {
@@ -179,7 +179,7 @@ public:
   * \brief Get weights for queries, if not exists, will return nullptr
   * \return Pointer of weights for queries
   */
-  inline const float* query_weights() const {
+  inline const label_t* query_weights() const {
     if (!query_weights_.empty()) {
       return query_weights_.data();
     } else {
@@ -219,19 +219,19 @@ private:
   /*! \brief Load query wights */
   void LoadQueryWeights();
   /*! \brief Filename of current data */
-  const char* data_filename_;
+  std::string data_filename_;
   /*! \brief Number of data */
   data_size_t num_data_;
   /*! \brief Number of weights, used to check correct weight file */
   data_size_t num_weights_;
   /*! \brief Label data */
-  std::vector<float> label_;
+  std::vector<label_t> label_;
   /*! \brief Weights data */
-  std::vector<float> weights_;
+  std::vector<label_t> weights_;
   /*! \brief Query boundaries */
   std::vector<data_size_t> query_boundaries_;
   /*! \brief Query weights */
-  std::vector<float> query_weights_;
+  std::vector<label_t> query_weights_;
   /*! \brief Number of querys */
   data_size_t num_queries_;
   /*! \brief Number of Initial score, used to check correct weight file */
@@ -263,6 +263,8 @@ public:
   */
   virtual void ParseOneLine(const char* str,
                             std::vector<std::pair<int, double>>* out_features, double* out_label) const = 0;
+
+  virtual int TotalColumns() const = 0;
 
   /*!
   * \brief Create a object of parser, will auto choose the format depend on file
@@ -361,7 +363,15 @@ public:
   inline uint64_t NumTotalBin() const {
     return group_bin_boundaries_.back();
   }
-
+  inline std::vector<int> ValidFeatureIndices() const {
+    std::vector<int> ret;
+    for (int i = 0; i < num_total_features_; ++i) {
+      if (used_feature_map_[i] >= 0) {
+        ret.push_back(i);
+      }
+    }
+    return ret;
+  }
   void ReSize(data_size_t num_data);
 
   void CopySubset(const Dataset* fullset, const data_size_t* used_indices, data_size_t num_used_indices, bool need_meta_data);
@@ -424,6 +434,27 @@ public:
     const int sub_feature = feature2subfeature_[i];
     return feature_groups_[group]->bin_mappers_[sub_feature]->num_bin();
   }
+
+  inline int8_t FeatureMonotone(int i) const {
+    if (monotone_types_.empty()) {
+      return 0;
+    } else {
+      return monotone_types_[i];
+    }
+  }
+
+  bool HasMonotone() const {
+    if (monotone_types_.empty()) {
+      return false;
+    } else {
+      for (size_t i = 0; i < monotone_types_.size(); ++i) {
+        if (monotone_types_[i] != 0) {
+          return true;
+        }
+      }
+      return false;
+    }
+  }
   
   inline int FeatureGroupNumBin(int group) const {
     return feature_groups_[group]->num_total_bin_;
@@ -462,6 +493,13 @@ public:
     const int group = feature2group_[i];
     const int sub_feature = feature2subfeature_[i];
     return feature_groups_[group]->bin_mappers_[sub_feature]->BinToValue(threshold);
+  }
+
+  // given a real threshold, find the closest threshold bin
+  inline uint32_t BinThreshold(int i, double threshold_double) const {
+    const int group = feature2group_[i];
+    const int sub_feature = feature2subfeature_[i];
+    return feature_groups_[group]->bin_mappers_[sub_feature]->ValueToBin(threshold_double);
   }
 
   inline void CreateOrderedBins(std::vector<std::unique_ptr<OrderedBin>>* ordered_bins) const {
@@ -538,7 +576,7 @@ public:
   Dataset(const Dataset&) = delete;
 
 private:
-  const char* data_filename_;
+  std::string data_filename_;
   /*! \brief Store used features */
   std::vector<std::unique_ptr<FeatureGroup>> feature_groups_;
   /*! \brief Mapper from real feature index to used index*/
@@ -566,6 +604,7 @@ private:
   std::vector<uint64_t> group_bin_boundaries_;
   std::vector<int> group_feature_start_;
   std::vector<int> group_feature_cnt_;
+  std::vector<int8_t> monotone_types_;
   bool is_finish_load_;
 };
 

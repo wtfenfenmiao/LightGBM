@@ -7,7 +7,7 @@ LightGBM, Light Gradient Boosting Machine
 [![GitHub Issues](https://img.shields.io/github/issues/Microsoft/LightGBM.svg)](https://github.com/Microsoft/LightGBM/issues)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/Microsoft/LightGBM/blob/master/LICENSE)
 [![Python Versions](https://img.shields.io/pypi/pyversions/lightgbm.svg)](https://pypi.python.org/pypi/lightgbm)
-[![PyPI Version](https://badge.fury.io/py/lightgbm.svg)](https://badge.fury.io/py/lightgbm)
+[![PyPI Version](https://img.shields.io/pypi/v/lightgbm.svg)](https://pypi.python.org/pypi/lightgbm)
 [![Join the chat at https://gitter.im/Microsoft/LightGBM](https://badges.gitter.im/Microsoft/LightGBM.svg)](https://gitter.im/Microsoft/LightGBM?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 [![Slack](https://lightgbm-slack-autojoin.herokuapp.com/badge.svg)](https://lightgbm-slack-autojoin.herokuapp.com/)
 
@@ -19,16 +19,16 @@ LightGBM is a gradient boosting framework that uses tree based learning algorith
 - Parallel and GPU learning supported
 - Capable of handling large-scale data
 
-For more details, please refer to [Features](https://github.com/Microsoft/LightGBM/blob/master/docs/Features.rst).
+For more details, please refer to [Features](https://github.com/Microsoft/LightGBM/blob/master/docs/Features.rst). Benefit from these advantages, LightGBM is being widely-used in many [winning solutions](https://github.com/Microsoft/LightGBM/blob/master/examples/README.md#machine-learning-challenge-winning-solutions) of machine learning competitions.
 
-[Comparison experiments](https://github.com/Microsoft/LightGBM/blob/master/docs/Experiments.rst#comparison-experiment) on public datasets show that LightGBM can outperform existing boosting frameworks on both efficiency and accuracy, with significantly lower memory consumption. What's more, the [parallel experiments](https://github.com/Microsoft/LightGBM/blob/master/docs/Experiments.rst#parallel-experiment) show that LightGBM can achieve a linear speed-up by using multiple machines for training in specific settings.
+[Comparison experiments](https://github.com/Microsoft/LightGBM/blob/master/docs/Experiments.rst#comparison-experiment) on public datasets show that LightGBM can outperform existing boosting frameworks on both efficiency and accuracy, with significantly lower memory consumption. What's more, the [parallel experiments](https://github.com/Microsoft/LightGBM/blob/master/docs/Experiments.rst#parallel-experiment) show that LightGBM can achieve a linear speed-up by using multiple machines for training in specific settings. 
 
 News
 ----
 
 08/15/2017 : Optimal split for categorical features.
 
-07/13/2017 : [Gitter](https://gitter.im/Microsoft/LightGBM) is avaiable.
+07/13/2017 : [Gitter](https://gitter.im/Microsoft/LightGBM) is available.
 
 06/20/2017 : Python-package is on [PyPI](https://pypi.python.org/pypi/lightgbm) now.
 
@@ -40,7 +40,7 @@ News
 
 02/20/2017 : Update to LightGBM v2.
 
-02/12/2017: LightGBM v1 stable release.
+02/12/2017 : LightGBM v1 stable release.
 
 01/08/2017 : Release [**R-package**](https://github.com/Microsoft/LightGBM/tree/master/R-package) beta version, welcome to have a try and provide feedback.
 
@@ -76,8 +76,8 @@ Next you may want to read:
 
 Documentation for contributors:
 
-* [**How we Update readthedocs.io**](https://github.com/Microsoft/LightGBM/blob/master/docs/README.md)
-* Check out the [Development Guide](https://github.com/Microsoft/LightGBM/blob/master/docs/Development-Guide.rst).
+* [**How we update readthedocs.io**](https://github.com/Microsoft/LightGBM/blob/master/docs/README.rst)
+* Check out the [**Development Guide**](https://github.com/Microsoft/LightGBM/blob/master/docs/Development-Guide.rst).
 
 Support
 -------
@@ -97,9 +97,20 @@ LightGBM has been developed and used by many active community members. Your help
 - Contribute to the [tests](https://github.com/Microsoft/LightGBM/tree/master/tests) to make it more reliable.
 - Contribute to the [documents](https://github.com/Microsoft/LightGBM/tree/master/docs) to make it clearer for everyone.
 - Contribute to the [examples](https://github.com/Microsoft/LightGBM/tree/master/examples) to share your experience with other users.
+- Add your stories and experience to [Awesome LightGBM](https://github.com/Microsoft/LightGBM/blob/master/examples/README.md).
 - Open issue if you met problems during development.
 
 Microsoft Open Source Code of Conduct
 -------------------------------------
 
 This project has adopted the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/). For more information see the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/) or contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additional questions or comments.
+
+Reference Paper
+---------------
+
+Guolin Ke, Qi Meng, Thomas Finley, Taifeng Wang, Wei Chen, Weidong Ma, Qiwei Ye, and Tie-Yan Liu. "[LightGBM: A Highly Efficient Gradient Boosting Decision Tree](https://papers.nips.cc/paper/6907-lightgbm-a-highly-efficient-gradient-boosting-decision-tree)". In Advances in Neural Information Processing Systems (NIPS), pp. 3149-3157. 2017.
+
+Qi Meng, Guolin Ke, Taifeng Wang, Wei Chen, Qiwei Ye, Zhi-Ming Ma, Tieyan Liu. "[A Communication-Efficient Parallel Algorithm for Decision Tree](http://papers.nips.cc/paper/6380-a-communication-efficient-parallel-algorithm-for-decision-tree)". Advances in Neural Information Processing Systems 29 (NIPS 2016).
+
+Huan Zhang, Si Si and Cho-Jui Hsieh. "[GPU Acceleration for Large-scale Tree Boosting](https://arxiv.org/abs/1706.08359)". arXiv:1706.08359, 2017.
+
